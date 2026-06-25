@@ -1,0 +1,1600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jays — Runner Purchase Order Log</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --card:#fff; --ink:#16202b; --muted:#6b7785; --line:#e3e8ee;
+    --brand:#1b6e4f; --brand2:#15583f; --cash:#1b6e4f; --card-c:#2563eb;
+    --trip:#b45309; --bad:#c1121f; --good:#1b6e4f; --soft:#f5f7f9; --warn:#fff7e6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:#eef1f4;color:var(--ink);font-size:15px;line-height:1.45;}
+  header{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;padding:16px;}
+  header .wrap{max-width:1000px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:space-between;}
+  .brand{display:flex;align-items:center;gap:12px;}
+  .logo{width:40px;height:40px;border-radius:10px;background:#fff;color:var(--brand);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;}
+  header h1{margin:0;font-size:18px;}
+  header .sub{opacity:.85;font-size:12px;}
+  .rolebar{display:flex;align-items:center;gap:8px;font-size:13px;}
+  .rolebar select{padding:7px 9px;border-radius:8px;border:0;font-size:14px;}
+  main{max-width:1000px;margin:0 auto;padding:16px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:0 1px 2px rgba(16,32,48,.04);}
+  .card h2{margin:0 0 2px;font-size:16px;display:flex;align-items:center;gap:8px;}
+  .card .who{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--muted);}
+  .card .hint{color:var(--muted);font-size:13px;margin:4px 0 12px;}
+  label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:0 0 4px;text-transform:uppercase;letter-spacing:.3px;}
+  input,select,textarea{width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:9px;font-size:15px;background:#fff;color:var(--ink);font-family:inherit;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(27,110,79,.12);}
+  input:disabled,select:disabled,textarea:disabled{background:#f1f3f5;color:#5a6470;cursor:not-allowed;}
+  .grid{display:grid;gap:12px;}
+  .g2{grid-template-columns:1fr 1fr;} .g3{grid-template-columns:repeat(3,1fr);} .g4{grid-template-columns:repeat(4,1fr);}
+  @media(max-width:720px){.g2,.g3,.g4{grid-template-columns:1fr 1fr;}}
+  @media(max-width:480px){.g2,.g3,.g4{grid-template-columns:1fr;}}
+  table{width:100%;border-collapse:collapse;}
+  th,td{text-align:left;padding:7px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle;}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);}
+  td input,td select{padding:7px;font-size:14px;}
+  .num,td.num input{text-align:right;}
+  .btn{appearance:none;border:0;border-radius:9px;padding:10px 14px;font-size:14px;font-weight:600;cursor:pointer;}
+  .btn.primary{background:var(--brand);color:#fff;} .btn.primary:disabled{opacity:.4;cursor:not-allowed;}
+  .btn.ghost{background:var(--soft);color:var(--ink);border:1px solid var(--line);}
+  .btn.small{padding:6px 10px;font-size:13px;}
+  .btn.warn{background:#fff;color:var(--trip);border:1px solid #f0d8a8;}
+  .btn.danger{background:#fff;color:var(--bad);border:1px solid #f0c6c9;}
+  .del{background:none;border:0;color:var(--bad);cursor:pointer;font-size:18px;}
+  .row-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .totals{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  @media(max-width:720px){.totals{grid-template-columns:1fr 1fr;}}
+  .tbox{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:12px;}
+  .tbox .k{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;}
+  .tbox .v{font-size:21px;font-weight:800;margin-top:3px;}
+  .tbox.cash .v{color:var(--cash);} .tbox.card .v{color:var(--card-c);} .tbox.trip .v{color:var(--trip);}
+  .tbox.grand{background:var(--brand);border-color:var(--brand);} .tbox.grand .k{color:rgba(255,255,255,.85);} .tbox.grand .v{color:#fff;}
+  .recon{display:grid;grid-template-columns:1fr auto;gap:6px 16px;max-width:540px;}
+  .recon .lbl{color:var(--muted);} .recon .amt{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}
+  .recon .total{border-top:2px solid var(--ink);padding-top:6px;font-weight:800;}
+  .variance.ok{color:var(--good);} .variance.short{color:var(--bad);}
+  .flag{display:inline-block;margin-left:8px;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;}
+  .flag.over{background:rgba(193,18,31,.12);color:var(--bad);} .flag.ok{background:rgba(27,110,79,.12);color:var(--good);}
+  .badge{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:.4px;}
+  .badge.draft{background:#eceff1;color:#5a6470;} .badge.authorised{background:rgba(37,99,235,.12);color:var(--card-c);}
+  .badge.submitted{background:rgba(180,83,9,.14);color:var(--trip);} .badge.approved{background:rgba(27,110,79,.14);color:var(--good);}
+  .badge.returned{background:rgba(193,18,31,.12);color:var(--bad);}
+  .muted{color:var(--muted);}
+  .history-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;}
+  details.folder{border:1px solid var(--line);border-radius:10px;padding:6px 12px;margin-bottom:8px;background:#fff;}
+  details.folder>summary{cursor:pointer;font-weight:700;padding:6px 0;list-style:none;}
+  details.folder>summary::-webkit-details-marker{display:none;}
+  .history-item .meta{font-size:13px;color:var(--muted);margin-top:2px;}
+  .topbar{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .invoice{border:2px solid var(--brand);border-radius:14px;padding:18px;}
+  .invoice .line{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);}
+  .invoice .line.grand{border-bottom:0;border-top:2px solid var(--brand);margin-top:6px;padding-top:10px;font-size:18px;font-weight:800;}
+  .stepflow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted);margin-bottom:6px;}
+  .stepflow b{color:var(--ink);}
+  .hidden{display:none !important;}
+  .banner{padding:9px 12px;border-radius:9px;font-size:13px;margin-bottom:12px;}
+  .banner.info{background:#eaf3ff;color:#1d4ed8;} .banner.local{background:var(--warn);color:#92660b;}
+  .footer-note{font-size:12px;color:var(--muted);text-align:center;padding:8px 0 30px;}
+  #loginGate{position:fixed;inset:0;background:#eef1f4;display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;}
+  #loginGate .login-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:28px;max-width:380px;width:100%;text-align:center;box-shadow:0 8px 30px rgba(16,32,48,.12);}
+  #loginGate .logo{margin:0 auto 14px;width:48px;height:48px;border-radius:12px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;}
+  #loginGate h2{margin:0 0 6px;} #loginGate p{color:var(--muted);font-size:14px;margin:0 0 6px;}
+  #loginGate input{margin:14px 0;text-align:center;} #loginGate .btn{width:100%;}
+  #userBox{font-size:12px;color:rgba(255,255,255,.9);display:flex;align-items:center;gap:8px;}
+  #userBox button{background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:7px;padding:5px 9px;cursor:pointer;font-size:12px;}
+  #printArea{display:none;}
+  body.printing > *{display:none !important;}
+  body.printing #printArea{display:block !important;}
+  #printArea{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:#16202b;background:#fff;}
+  .rpt-head{display:flex;align-items:center;gap:14px;border-bottom:3px solid var(--brand);padding-bottom:12px;margin-bottom:16px;}
+  .rpt-logo{width:46px;height:46px;border-radius:10px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;}
+  .rpt-title{font-size:20px;font-weight:800;line-height:1.1;}
+  .rpt-sub{color:#6b7785;font-size:12px;margin-top:2px;}
+  .rpt-meta{display:flex;flex-wrap:wrap;gap:6px 26px;margin-bottom:8px;font-size:13px;}
+  .rpt-meta .k{color:#6b7785;}
+  #printArea h3{font-size:13px;margin:16px 0 6px;color:var(--brand);text-transform:uppercase;letter-spacing:.4px;}
+  .rpt-tbl{width:100%;border-collapse:collapse;margin-bottom:4px;font-size:12px;}
+  .rpt-tbl th{background:#f1f5f3;text-align:left;padding:6px 8px;border:1px solid #dbe5e0;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#5a6470;}
+  .rpt-tbl td{padding:6px 8px;border:1px solid #dbe5e0;}
+  .rpt-tbl tr:last-child td{font-weight:700;}
+  .rpt-tot{margin-top:12px;padding:10px 12px;background:#f1f5f3;border-radius:8px;font-weight:600;font-size:13px;line-height:1.7;}
+  .rpt-neg{color:#c1121f;font-weight:700;} .rpt-pos{color:#1b6e4f;font-weight:700;}
+  .rpt-sign{margin-top:30px;display:flex;justify-content:space-between;gap:30px;font-size:12px;}
+  .rpt-sign div{border-top:1px solid #999;padding-top:5px;flex:1;}
+  @media print{ @page{margin:14mm;} body{background:#fff;} .no-print{display:none !important;} }
+</style>
+</head>
+<body>
+<div id="loginGate" class="hidden">
+  <div class="login-card">
+    <div class="logo">J</div>
+    <h2>Jays Runner Log</h2>
+    <p>Sign in with your email and password.</p>
+    <input id="loginEmail" type="email" placeholder="you@email.com" autocomplete="email">
+    <div style="position:relative;margin:14px 0;">
+      <input id="loginPass" type="password" placeholder="password" autocomplete="current-password" style="margin:0;padding-right:58px;">
+      <button type="button" onclick="togglePass(this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;font-size:12px;color:var(--brand);font-weight:700;">show</button>
+    </div>
+    <button class="btn primary" onclick="signInPassword()">Sign in</button>
+    <p id="loginMsg"></p>
+    <p style="font-size:13px;margin-top:12px;color:var(--muted);">
+      <a href="#" onclick="resetPassword();return false;">Set / forgot password</a>
+      &nbsp;·&nbsp;
+      <a href="#" onclick="sendMagicLink();return false;">Email me a link instead</a>
+    </p>
+  </div>
+</div>
+<header>
+  <div class="wrap">
+    <div class="brand">
+      <div class="logo">J</div>
+      <div><h1>Jays — Runner Purchase Order Log</h1><div class="sub">Cash &amp; card stock runs &middot; amounts in Maloti (M)</div></div>
+    </div>
+    <div class="rolebar no-print">
+      <span>I am:</span>
+      <select id="role" onchange="applyRole()">
+        <option value="authoriser">Manager (Authoriser)</option>
+        <option value="runner">Runner</option><option value="waitron">Waitron</option>
+        <option value="approver">Approver (Accountant)</option>
+        <option value="viewer">Viewer (read only)</option>
+      </select>
+      <span id="userBox" class="hidden"></span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div id="modeBanner"></div>
+
+  <!-- LIST VIEW -->
+  <section id="listView">
+    <div class="topbar no-print">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <h2 id="listTitle" style="margin:0;">Purchase order runs</h2>
+        <span id="modeToggle" class="row-actions" style="margin:0;">
+          <button class="btn ghost small" id="modePoBtn" onclick="setMode('po')">Purchase orders</button>
+          <button class="btn ghost small" id="modeWaitronBtn" onclick="setMode('waitron')">Waitron petty cash</button>
+          <button class="btn ghost small" id="modeSalesBtn" onclick="setMode('sales')">Daily sales</button>
+        </span>
+      </div>
+      <div class="row-actions" style="margin:0;">
+        <button class="btn ghost small" id="manageTeamBtn" onclick="showTeam()" style="display:none;">👥 Manage team</button>
+        <button class="btn ghost small" id="salesSummaryBtn" onclick="openSalesSummary()" style="display:none;">📊 Daily summary</button>
+        <button class="btn ghost small" id="shortagesBtn" onclick="openShortages()" style="display:none;">💸 Shortages (month)</button>
+        <button class="btn ghost small" onclick="refreshList()">↻ Refresh</button>
+        <button class="btn primary small" id="newRunBtn" onclick="newRecord()">+ New</button>
+      </div>
+    </div>
+    <div class="card"><div id="history"></div></div>
+  </section>
+
+  <!-- MANAGE TEAM VIEW -->
+  <section id="teamView" class="hidden">
+    <div class="topbar no-print">
+      <button class="btn ghost small" onclick="showList()">← Back to list</button>
+      <h2 style="margin:0;">Manage team</h2>
+    </div>
+    <div class="card">
+      <p class="hint">Add the people who use this log and set each one's role. A brand-new person also needs a login created once in Supabase (Authentication → Add user → with a password).</p>
+      <div class="grid g4">
+        <div><label>Email</label><input id="tmEmail" type="email" placeholder="name@email.com"></div>
+        <div><label>Display name</label><input id="tmName" placeholder="e.g. Tom"></div>
+        <div><label>Role</label><select id="tmRole">
+          <option value="runner">Runner</option><option value="waitron">Waitron</option>
+          <option value="authoriser">Manager (Authoriser)</option>
+          <option value="approver">Approver (Accountant)</option>
+          <option value="viewer">Viewer (read only)</option>
+        </select></div>
+        <div style="align-self:end;"><button class="btn primary" onclick="addMember()">Add / update</button></div>
+      </div>
+      <div id="teamList" style="margin-top:16px;overflow-x:auto;"></div>
+    </div>
+  </section>
+
+  <!-- DETAIL VIEW -->
+  <section id="detailView" class="hidden">
+    <div class="topbar no-print">
+      <button class="btn ghost small" onclick="showList()">← Back to list</button>
+      <div class="row-actions" style="margin:0;">
+        <button class="btn ghost small" onclick="printReport()">🖨 Print / PDF</button>
+        <button class="btn ghost small" onclick="exportCSV()">⬇ CSV</button>
+        <button class="btn primary small" onclick="saveRun()">💾 Save</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="stepflow">
+        <b>Status:</b> <span id="statusBadge" class="badge draft">Draft</span>
+        &nbsp;·&nbsp; Flow: Authorise → Runner submits → Approver approves
+      </div>
+    </div>
+
+    <!-- AUTHORISER SECTION -->
+    <div class="card" id="secAuth">
+      <h2>Purchase order &amp; authorisation <span class="who">Accountant / Authoriser</span></h2>
+      <p class="hint">Reference the PO you already issued, and set how much the runner may spend in cash and on the card.</p>
+      <div class="grid g4">
+        <div><label>PO number</label><input id="po" placeholder="e.g. PO-1042"></div>
+        <div><label>Date</label><input type="date" id="date"></div>
+        <div><label>Authorised by</label><input id="authoriser" placeholder="name"></div>
+        <div><label>PO value / budget (M)</label><input type="number" step="0.01" id="poBudget" placeholder="0.00" oninput="recalc()"></div>
+        <div><label>Card limit allowed (M)</label><input type="number" step="0.01" id="cardLimit" placeholder="0.00" oninput="recalc()"></div>
+        <div style="grid-column:span 2;"><label>Notes to runner</label><input id="authNotes" placeholder="optional"></div>
+      </div>
+      <div style="margin-top:14px;">
+        <label>Cash floats handed out (one row per runner)</label>
+        <p class="hint" style="margin:2px 0 8px;">e.g. Tom = 3000, Jerry = 1500. Each runner then reconciles against their own float.</p>
+        <div style="overflow-x:auto;">
+        <table id="floatTable"><thead><tr><th style="min-width:160px;">Runner</th><th class="num" style="min-width:120px;">Cash float (M)</th><th class="no-print"></th></tr></thead><tbody id="floatBody"></tbody></table>
+        </div>
+        <div class="row-actions no-print"><button class="btn ghost small" id="btnAddFloat" onclick="addFloat()">+ Add runner float</button></div>
+      </div>
+      <div style="margin-top:14px;">
+        <label>Purchase order document (PDF)</label>
+        <div id="poDocBox" style="margin-bottom:6px;font-size:14px;"></div>
+        <input type="file" id="poFile" accept="application/pdf,image/*" class="no-print" onchange="attachPO(this)">
+      </div>
+      <div class="row-actions no-print"><button class="btn primary small" id="btnAuthorise" onclick="setStatus('authorised')">✓ Authorise &amp; hand to runner</button></div>
+    </div>
+
+    <!-- RUNNER SECTION -->
+    <div class="card" id="secRunner">
+      <h2>Purchases <span class="who">Runner</span></h2>
+      <p class="hint">One line per shop / receipt. Pick how it was paid (Cash, M-Pesa, Credit, or a bank card) and the amount. Only Cash comes out of the runner's float.</p>
+      <div style="overflow-x:auto;">
+      <table id="buyTable">
+        <thead><tr>
+          <th style="min-width:110px;">Shop / Seller</th>
+          <th style="min-width:120px;">Items</th>
+          <th style="min-width:150px;">Payment method</th>
+          <th class="num" style="min-width:100px;">Amount (M)</th>
+          <th style="min-width:130px;">Receipt (required)</th>
+          <th style="min-width:110px;">Runner</th>
+          <th class="no-print"></th>
+        </tr></thead>
+        <tbody id="buyBody"></tbody>
+      </table>
+      </div>
+      <div class="row-actions no-print"><button class="btn ghost small" id="btnAddBuy" onclick="addBuy()">+ Add purchase</button></div>
+
+      <h2 style="margin-top:18px;">Trip charges <span class="who">Runner</span></h2>
+      <p class="hint">The fee depends on the shop / distance. One line per trip. Mark whether he took the fee from cash now.</p>
+      <div style="overflow-x:auto;">
+      <table id="tripTable">
+        <thead><tr>
+          <th style="min-width:150px;">Destination / shop</th>
+          <th class="num" style="min-width:110px;">Trip fee (M)</th>
+          <th style="min-width:120px;">Paid in cash now?</th>
+          <th style="min-width:110px;">Runner</th>
+          <th class="no-print"></th>
+        </tr></thead>
+        <tbody id="tripBody"></tbody>
+      </table>
+      </div>
+      <div class="row-actions no-print"><button class="btn ghost small" id="btnAddTrip" onclick="addTrip()">+ Add trip</button></div>
+
+      <div class="grid g3" style="margin-top:16px;">
+        <div><label>Cash you are returning (M)</label><input type="number" step="0.01" id="myReturned" placeholder="0.00" oninput="recalc()"></div>
+      </div>
+      <p class="hint" id="returnHint" style="margin:6px 0 0;"></p>
+      <p class="hint" style="margin-top:6px;">📎 Each purchase line above needs a receipt attached. You can't submit until every line has one.</p>
+      <div class="row-actions no-print"><button class="btn primary small" id="btnSubmit" onclick="setStatus('submitted')">📤 Submit for approval</button></div>
+    </div>
+
+    <!-- TOTALS -->
+    <div class="card">
+      <h2>Daily totals</h2>
+      <div class="totals">
+        <div class="tbox cash"><div class="k">Stock paid in cash</div><div class="v" id="tCash">M0.00</div></div>
+        <div class="tbox card"><div class="k">Stock paid (non-cash)</div><div class="v" id="tCard">M0.00</div></div>
+        <div class="tbox trip"><div class="k">Trip charges</div><div class="v" id="tTrip">M0.00</div></div>
+        <div class="tbox grand"><div class="k">Total spent</div><div class="v" id="tGrand">M0.00</div></div>
+      </div>
+      <div style="margin-top:12px;font-size:14px;">
+        <div>Stock vs PO budget: <span id="budgetCheck" class="muted">—</span></div>
+        <div>Non-cash spend vs card limit: <span id="cardCheck" class="muted">—</span></div>
+      </div>
+    </div>
+
+    <!-- RECON -->
+    <div class="card">
+      <h2>Cash reconciliation (per runner)</h2>
+      <p class="hint">Each runner accounts for their own float. Only cash purchases and cash-paid trips come out of it. "Should return" = float − cash spent − cash trips.</p>
+      <div id="reconTable" style="overflow-x:auto;"></div>
+    </div>
+
+    <!-- PER-RUNNER BREAKDOWN -->
+    <div class="card">
+      <h2>Per-runner breakdown</h2>
+      <p class="hint">When more than one runner shares a PO, this shows what each one spent and the trip fee each is owed.</p>
+      <div id="runnerBreakdown" style="overflow-x:auto;"></div>
+    </div>
+
+    <!-- SPEND BY PAYMENT METHOD -->
+    <div class="card">
+      <h2>Spend by payment method</h2>
+      <p class="hint">Totals per method (Cash, M-Pesa, Credit, Post bank, Tyme) so each card/account can be reconciled.</p>
+      <div id="methodTotals" style="overflow-x:auto;"></div>
+    </div>
+
+    <!-- INVOICE -->
+    <div class="card">
+      <div class="invoice">
+        <h3 style="margin:0 0 2px;">Runner invoice — PO <span id="invPo">—</span></h3>
+        <div class="muted" style="margin-bottom:10px;">Runner: <span id="invRunner">—</span> &middot; <span id="invDate">—</span></div>
+        <div class="line"><span>Stock bought with cash (from float)</span><span id="iCash">M0.00</span></div>
+        <div class="line"><span>Stock bought (non-cash)</span><span id="iCard">M0.00</span></div>
+        <div class="line"><span>Trip charges (service fee)</span><span id="iTrip">M0.00</span></div>
+        <div class="line grand"><span>Runner's fee owed (trips)</span><span id="iOwed">M0.00</span></div>
+      </div>
+      <p class="hint" style="margin-top:10px;">The <b>fee owed</b> is the trip charges only — that's what you pay the runner. Stock totals are the goods (cash from float + company card).</p>
+    </div>
+
+    <!-- APPROVER SECTION -->
+    <div class="card" id="secApprover">
+      <h2>Review &amp; approval <span class="who">Approver</span></h2>
+      <p class="hint">Check the receipts and trips against the PO, then approve or send back.</p>
+      <div class="grid g2">
+        <div><label>Checked &amp; approved by</label><input id="approver" placeholder="name"></div>
+        <div><label>Comments</label><input id="approverComments" placeholder="optional"></div>
+      </div>
+      <div class="row-actions no-print">
+        <button class="btn primary small" id="btnApprove" onclick="setStatus('approved')">✓ Approve</button>
+        <button class="btn danger small" id="btnReturn" onclick="setStatus('returned')">↩ Send back to runner</button>
+      </div>
+      <div id="approvedStamp" class="hidden" style="margin-top:10px;font-weight:700;color:var(--good);"></div>
+    </div>
+  </section>
+
+  <!-- WAITRON PETTY CASH VIEW -->
+  <section id="waitronView" class="hidden">
+    <div class="topbar no-print">
+      <button class="btn ghost small" onclick="showList()">← Back to list</button>
+      <div class="row-actions" style="margin:0;">
+        <button class="btn ghost small" onclick="printReport()">🖨 Print / PDF</button>
+        <button class="btn primary small" onclick="saveWaitron()">💾 Save</button>
+      </div>
+    </div>
+    <div class="card"><div class="stepflow"><b>Status:</b> <span id="wStatusBadge" class="badge draft">Draft</span> &nbsp;·&nbsp; Manager sets float → Waitron submits → Accountant approves</div></div>
+
+    <div class="card" id="secWAuth">
+      <h2>Petty cash float <span class="who">Manager</span></h2>
+      <p class="hint">Set the date, choose the waitron, and the cash float handed to them.</p>
+      <div class="grid g4">
+        <div><label>Date</label><input type="date" id="wDate"></div>
+        <div><label>Waitron</label><select id="wPerson" onchange="recalcW()"></select></div>
+        <div><label>Cash float given (M)</label><input type="number" step="0.01" id="wFloat" placeholder="0.00" oninput="recalcW()"></div>
+        <div><label>Set by</label><input id="wAuthoriser" placeholder="name"></div>
+      </div>
+      <div class="row-actions no-print"><button class="btn primary small" id="wBtnAuthorise" onclick="setWStatus('authorised')">✓ Authorise &amp; hand to waitron</button></div>
+    </div>
+
+    <div class="card" id="secWExpense">
+      <h2>Expenses <span class="who">Waitron</span></h2>
+      <p class="hint">One line per expense, each with a receipt attached.</p>
+      <div style="overflow-x:auto;">
+      <table id="wExpTable"><thead><tr>
+        <th style="min-width:120px;">Category</th>
+        <th style="min-width:160px;">Note / where</th>
+        <th class="num" style="min-width:100px;">Amount (M)</th>
+        <th style="min-width:130px;">Receipt (required)</th>
+        <th class="no-print"></th>
+      </tr></thead><tbody id="wExpBody"></tbody></table>
+      </div>
+      <div class="row-actions no-print"><button class="btn ghost small" id="wBtnAddExp" onclick="addExpense()">+ Add expense</button></div>
+      <div class="grid g3" style="margin-top:16px;">
+        <div><label>Cash you are returning (M)</label><input type="number" step="0.01" id="wReturned" placeholder="0.00" oninput="recalcW()"></div>
+      </div>
+      <p class="hint">📎 Every expense needs a receipt before you can submit.</p>
+      <div class="row-actions no-print"><button class="btn primary small" id="wBtnSubmit" onclick="setWStatus('submitted')">📤 Submit for approval</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Reconciliation</h2>
+      <div class="recon">
+        <div class="lbl">Float given</div><div class="amt" id="wrFloat">M0.00</div>
+        <div class="lbl">– Total spent</div><div class="amt" id="wrSpent">M0.00</div>
+        <div class="lbl total">Cash that should be returned</div><div class="amt total" id="wrShould">M0.00</div>
+        <div class="lbl">Actual cash returned</div><div class="amt" id="wrReturned">M0.00</div>
+        <div class="lbl total">Variance (over / short)</div><div class="amt total variance" id="wrVariance">M0.00</div>
+      </div>
+    </div>
+
+    <div class="card" id="secWApprover">
+      <h2>Review &amp; approval <span class="who">Approver</span></h2>
+      <div class="grid g2">
+        <div><label>Checked &amp; approved by</label><input id="wApprover" placeholder="name"></div>
+        <div><label>Comments</label><input id="wApproverComments" placeholder="optional"></div>
+      </div>
+      <div class="row-actions no-print">
+        <button class="btn primary small" id="wBtnApprove" onclick="setWStatus('approved')">✓ Approve</button>
+        <button class="btn danger small" id="wBtnReturn" onclick="setWStatus('returned')">↩ Send back to waitron</button>
+      </div>
+      <div id="wApprovedStamp" class="hidden" style="margin-top:10px;font-weight:700;color:var(--good);"></div>
+    </div>
+  </section>
+
+  <!-- DAILY SALES CASH-UP VIEW -->
+  <section id="salesView" class="hidden">
+    <div class="topbar no-print">
+      <button class="btn ghost small" onclick="showList()">← Back to list</button>
+      <div class="row-actions" style="margin:0;">
+        <button class="btn ghost small" onclick="printReport()">🖨 Print / PDF</button>
+        <button class="btn primary small" onclick="saveSales()">💾 Save</button>
+      </div>
+    </div>
+    <div class="card"><div class="stepflow"><b>Status:</b> <span id="sStatusBadge" class="badge draft">Draft</span> &nbsp;·&nbsp; Waitron counts &amp; submits → Accountant approves</div></div>
+
+    <div class="card" id="secSDrawer">
+      <h2>Drawer cash-up <span class="who">Waitron</span></h2>
+      <div class="grid g4">
+        <div><label>Date</label><input type="date" id="sDate"></div>
+        <div><label>Employee (waitron)</label><select id="sPerson" onchange="recalcS()"></select></div>
+        <div><label>Opening float (M)</label><input type="number" step="0.01" id="sOpening" placeholder="0.00" oninput="recalcS()"></div>
+        <div><label>Tips (M) — manager</label><input type="number" step="0.01" id="sTips" placeholder="0.00" oninput="recalcS()"></div>
+      </div>
+
+      <h2 style="margin-top:18px;font-size:15px;">1. Count your cash</h2>
+      <div style="overflow-x:auto;max-width:480px;">
+      <table id="denomTable"><thead><tr><th>Note (M)</th><th class="num">No. of notes</th><th class="num">Amount (M)</th></tr></thead>
+        <tbody id="denomBody"></tbody>
+        <tfoot><tr><th>Cash counted</th><th></th><th class="num" id="sCashCounted">M0.00</th></tr></tfoot>
+      </table>
+      </div>
+
+      <h2 style="margin-top:18px;font-size:15px;">2. Counted vs POS</h2>
+      <p class="hint">The <b>waitron</b> fills in <b>Counted</b> (what they actually have). The <b>manager/accountant</b> fills in <b>Expected/POS</b> and <b>Tips</b> at review time. The Difference flags any shortfall in red.</p>
+      <div style="overflow-x:auto;">
+      <table id="payTable"><thead><tr><th>Payment type</th><th class="num">Counted (M)</th><th class="num">Expected / POS (M)</th><th class="num">Difference</th></tr></thead>
+        <tbody id="payBody"></tbody>
+        <tfoot><tr><th>Total difference (over / short)</th><th></th><th></th><th class="num variance" id="sTotalDiff">M0.00</th></tr></tfoot>
+      </table>
+      </div>
+
+      <h2 style="margin-top:18px;font-size:15px;">3. If short — explain</h2>
+      <div>
+        <label>Explanation (e.g. charged on M-Pesa instead of cash)</label>
+        <textarea id="sExplain" rows="2" placeholder="Reason for any shortage…"></textarea>
+        <div style="margin-top:8px;font-size:14px;">
+          <div id="sShortRcptBox" style="margin-bottom:6px;"></div>
+          <input type="file" id="sShortRcptFile" accept="application/pdf,image/*" class="no-print" onchange="attachShortageReceipt(this)">
+        </div>
+      </div>
+      <div class="grid g4" style="margin-top:14px;">
+        <div><label>Total short (M)</label><div class="amt" id="sShortage" style="padding:10px 0;font-weight:700;">M0.00</div></div>
+        <div><label>Explained amount (M) — manager</label><input type="number" step="0.01" id="sExplainedAmt" placeholder="0.00" oninput="recalcS()"></div>
+        <div><label>Remaining short (M)</label><div class="amt" id="sRemaining" style="padding:10px 0;font-weight:700;">M0.00</div></div>
+        <div><label>Remaining handling — manager</label>
+          <select id="sSettle">
+            <option value=""></option>
+            <option>Paid immediately</option>
+            <option>Owed — deduct from salary</option>
+            <option>N/A</option>
+          </select></div>
+      </div>
+
+      <div class="row-actions no-print"><button class="btn primary small" id="sBtnSubmit" onclick="setSStatus('submitted')">📤 Submit for approval</button></div>
+    </div>
+
+    <div class="card" id="secSApprover">
+      <h2>Review &amp; approval <span class="who">Approver</span></h2>
+      <div class="grid g2">
+        <div><label>Checked &amp; approved by</label><input id="sApprover" placeholder="name"></div>
+        <div><label>Comments</label><input id="sApproverComments" placeholder="optional"></div>
+      </div>
+      <div class="row-actions no-print">
+        <button class="btn primary small" id="sBtnApprove" onclick="setSStatus('approved')">✓ Approve</button>
+        <button class="btn danger small" id="sBtnReturn" onclick="setSStatus('returned')">↩ Send back</button>
+      </div>
+      <div id="sApprovedStamp" class="hidden" style="margin-top:10px;font-weight:700;color:var(--good);"></div>
+    </div>
+  </section>
+
+  <!-- DAILY SALES SUMMARY (manager roll-up) -->
+  <section id="salesSummaryView" class="hidden">
+    <div class="topbar no-print">
+      <button class="btn ghost small" onclick="showList()">← Back to list</button>
+      <div class="row-actions" style="margin:0;align-items:center;">
+        <label style="font-size:12px;color:var(--muted);">Date</label>
+        <input type="date" id="sumDate" onchange="loadSummary()" style="width:auto;">
+        <button class="btn ghost small" onclick="printReport()">🖨 Print / PDF</button>
+        <button class="btn primary small" onclick="saveSummary()">💾 Save deductions</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Daily sales summary — <span id="sumDateLabel">—</span></h2>
+      <p class="hint">Every waitron's drawer for this date, totalled. Shortfalls flag in red.</p>
+      <div id="sumDrawers" style="overflow-x:auto;"></div>
+    </div>
+    <div class="card">
+      <h2>End of day</h2>
+      <div class="recon">
+        <div class="lbl">Total cash counted</div><div class="amt" id="sumCash">M0.00</div>
+        <div class="lbl">– Total tips</div><div class="amt" id="sumTips">M0.00</div>
+        <div class="lbl total">Net cash</div><div class="amt total" id="sumNet">M0.00</div>
+      </div>
+      <p class="hint" style="margin-top:14px;">Deductions taken from the cash before banking:</p>
+      <div class="grid g4">
+        <div><label>Deposit (M)</label><input type="number" step="0.01" id="dDeposit" oninput="recalcSummary()"></div>
+        <div><label>Petty cash (M)</label><input type="number" step="0.01" id="dPetty" oninput="recalcSummary()"></div>
+        <div><label>Cab (M)</label><input type="number" step="0.01" id="dCab" oninput="recalcSummary()"></div>
+        <div><label>Fuel (M)</label><input type="number" step="0.01" id="dFuel" oninput="recalcSummary()"></div>
+        <div><label>Bread (M)</label><input type="number" step="0.01" id="dBread" oninput="recalcSummary()"></div>
+        <div><label>Savings (M)</label><input type="number" step="0.01" id="dSavings" oninput="recalcSummary()"></div>
+      </div>
+      <div class="recon" style="margin-top:14px;">
+        <div class="lbl total">Cash in hand</div><div class="amt total" id="sumCIH">M0.00</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Outstanding shortages (owed by staff)</h2>
+      <p class="hint">Across all dates — shortages marked "Owed — deduct from salary", totalled per waitron for payroll.</p>
+      <div id="owedTable" style="overflow-x:auto;"></div>
+    </div>
+  </section>
+
+  <!-- MONTHLY SHORTAGES RECORD -->
+  <section id="shortagesView" class="hidden">
+    <div class="topbar no-print">
+      <button class="btn ghost small" onclick="showList()">← Back to list</button>
+      <div class="row-actions" style="margin:0;align-items:center;">
+        <label style="font-size:12px;color:var(--muted);">Month</label>
+        <input type="month" id="shMonth" onchange="loadShortages()" style="width:auto;">
+        <button class="btn ghost small" onclick="printReport()">🖨 Print / PDF</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Shortages — <span id="shMonthLabel">—</span></h2>
+      <p class="hint">Every drawer that came up short this month, with the explained amount, what remains, and how it was handled.</p>
+      <div id="shTable" style="overflow-x:auto;"></div>
+    </div>
+    <div class="card">
+      <h2>Owed per waitron (this month)</h2>
+      <p class="hint">Only the unexplained "deduct from salary" amounts — ready for payroll.</p>
+      <div id="shOwed" style="overflow-x:auto;"></div>
+    </div>
+  </section>
+
+  <p class="footer-note">Jays Restaurant &middot; Runner, Waitron &amp; Daily Sales</p>
+</main>
+
+<datalist id="shopList"><option value="Shoprite"><option value="Econo"><option value="Market"></datalist>
+<div id="printArea"></div>
+
+<script>
+/* ============ CONFIG (filled in once the backend is live) ============ */
+const CONFIG = {
+  url: "https://rocxwhkgcysmrvqxxmbr.supabase.co",
+  key: "sb_publishable_uUi68aTGxKZ73scA578nTg_ogoClapI"
+};
+/* Team & roles come from the database (table "team"). These 3 are a fallback
+   so the app still works before the team table is set up. */
+const FALLBACK_TEAM = [
+  {email:'jaysrestaurant2@gmail.com', name:'Accountant', role:'authoriser'},
+  {email:'lnrsuppliers@gmail.com',    name:'Runner',     role:'runner'},
+  {email:'jaysrestaurant3@gmail.com', name:'Approver',   role:'approver'}
+];
+let TEAM = FALLBACK_TEAM.slice();
+let teamMap = {};
+let ME = {email:'', name:'', role:'viewer'};
+async function loadTeam(){
+  if(!sb){ TEAM=FALLBACK_TEAM.slice(); }
+  else {
+    try{ const {data,error}=await sb.from('team').select('*');
+      TEAM = (!error && data && data.length) ? data : FALLBACK_TEAM.slice();
+    }catch(e){ TEAM=FALLBACK_TEAM.slice(); }
+  }
+  teamMap={}; TEAM.forEach(t=>teamMap[(t.email||'').toLowerCase()]=t.role);
+}
+function runnerList(){ return TEAM.filter(t=>t.role==='runner').map(t=>t.name||t.email); }
+function defaultRunner(){ return ME.role==='runner' ? (ME.name||ME.email) : ''; }
+function runnerOptions(sel){
+  let names=runnerList(); if(sel && !names.includes(sel)) names=[sel].concat(names);
+  return '<option value=""></option>'+names.map(n=>'<option'+(n===sel?' selected':'')+'>'+esc(n)+'</option>').join('');
+}
+/* Payment methods. Only "Cash" comes out of the runner's float. Edit this list anytime. */
+const PAY_METHODS = ['Cash','M-Pesa','Credit','Post bank card …5670','Tyme Bank Card …6736'];
+function payOptions(sel){ return PAY_METHODS.map(m=>'<option'+(m===sel?' selected':'')+'>'+esc(m)+'</option>').join(''); }
+/* ===================================================================== */
+
+const M = n => 'M' + (Number(n)||0).toFixed(2);
+const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+let sb = null, current = null;
+
+if (CONFIG.url && CONFIG.key && window.supabase) {
+  sb = window.supabase.createClient(CONFIG.url, CONFIG.key);
+}
+
+/* ---------- Store: Supabase if configured, else localStorage ---------- */
+const LKEY = 'jays_po_runs';
+const Store = {
+  async list(){
+    if(sb){ const {data,error}=await sb.from('runs').select('*').order('date',{ascending:false}); if(error)throw error; return data||[]; }
+    const all=JSON.parse(localStorage.getItem(LKEY)||'{}'); return Object.values(all).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  },
+  async save(run){
+    run.updated_at=new Date().toISOString();
+    if(sb){ const payload={...run}; if(!payload.id) delete payload.id;
+      const {data,error}=await sb.from('runs').upsert(payload).select().single(); if(error)throw error; return data; }
+    const all=JSON.parse(localStorage.getItem(LKEY)||'{}'); if(!run.id)run.id='loc-'+Date.now(); all[run.id]=run; localStorage.setItem(LKEY,JSON.stringify(all)); return run;
+  },
+  async remove(id){
+    if(sb){ const {error}=await sb.from('runs').delete().eq('id',id); if(error)throw error; return; }
+    const all=JSON.parse(localStorage.getItem(LKEY)||'{}'); delete all[id]; localStorage.setItem(LKEY,JSON.stringify(all));
+  }
+};
+
+function blankRun(){
+  return {id:null, po_number:'', date:new Date().toISOString().slice(0,10), status:'draft',
+    authoriser:'', cash_float:0, card_limit:0, po_budget:0, auth_notes:'',
+    runner:'', purchases:[], trips:[], actual_cash:0,
+    approver:'', approver_comments:'', approved_at:null,
+    po_doc:null, receipts:[], floats:[]};
+}
+
+/* ---------- Rows ---------- */
+function addBuy(b={}){
+  const tr=document.createElement('tr');
+  tr._receiptFile = b.receiptFile||null;
+  let method=b.method, amount=b.amount;
+  if(method===undefined){ if((b.cash||0)>0){method='Cash';amount=b.cash;} else if((b.card||0)>0){method='Credit';amount=b.card;} else {method='Cash';amount='';} }
+  tr.innerHTML=`
+    <td><input list="shopList" value="${esc(b.shop)}" placeholder="Shoprite"></td>
+    <td><input value="${esc(b.items)}" placeholder="Stock"></td>
+    <td><select class="payMethod" onchange="recalc()">${payOptions(method)}</select></td>
+    <td class="num"><input type="number" step="0.01" value="${amount??''}" placeholder="0.00" oninput="recalc()"></td>
+    <td class="rcptCell"></td>
+    <td><select class="lineRunner" onchange="recalc()">${runnerOptions(b.runner||defaultRunner())}</select></td>
+    <td class="no-print"><button class="del" onclick="this.closest('tr').remove();recalc()">×</button></td>`;
+  document.getElementById('buyBody').appendChild(tr); renderRcptCell(tr); recalc(); applyRunnerLineLock();
+}
+function renderRcptCell(tr){
+  const cell=tr.querySelector('.rcptCell'); const f=tr._receiptFile;
+  if(f&&f.url){
+    cell.innerHTML='✓ <a href="'+f.url+'" target="_blank" rel="noopener">view</a> '
+      +'<button type="button" class="del no-print" title="remove" onclick="clearLineReceipt(this)">✕</button>'
+      +'<input type="file" accept="application/pdf,image/*" class="no-print rcptInput" style="display:none">';
+  } else {
+    cell.innerHTML='<button type="button" class="btn ghost small no-print" onclick="this.parentElement.querySelector(\'.rcptInput\').click()">Attach</button> '
+      +'<span style="color:var(--bad);font-size:11px;">required</span>'
+      +'<input type="file" accept="application/pdf,image/*" class="no-print rcptInput" style="display:none">';
+  }
+  const inp=cell.querySelector('.rcptInput'); if(inp) inp.onchange=()=>attachLineReceipt(tr,inp);
+}
+async function attachLineReceipt(tr,inp){
+  if(!inp.files||!inp.files[0])return;
+  tr.querySelector('.rcptCell').insertAdjacentHTML('afterbegin','<span class="muted" style="font-size:11px;">uploading… </span>');
+  try{ tr._receiptFile=await uploadTo('receipts',inp.files[0]); await persist(); }
+  catch(e){ alert('Upload failed: '+e.message); }
+  renderRcptCell(tr);
+}
+function clearLineReceipt(btn){ const tr=btn.closest('tr'); if(!confirm('Remove this receipt?'))return; tr._receiptFile=null; persist().then(()=>renderRcptCell(tr)); }
+function addTrip(t={}){
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><input value="${esc(t.dest)}" placeholder="Shoprite"></td>
+    <td class="num"><input type="number" step="0.01" value="${t.fee??''}" placeholder="0.00" oninput="recalc()"></td>
+    <td><select onchange="recalc()"><option value="yes" ${t.paidCash!==false?'selected':''}>Yes</option><option value="no" ${t.paidCash===false?'selected':''}>No</option></select></td>
+    <td><select class="lineRunner" onchange="recalc()">${runnerOptions(t.runner||defaultRunner())}</select></td>
+    <td class="no-print"><button class="del" onclick="this.closest('tr').remove();recalc()">×</button></td>`;
+  document.getElementById('tripBody').appendChild(tr); recalc(); applyRunnerLineLock();
+}
+function addFloat(f={}){
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><select class="floatRunner" onchange="recalc()">${runnerOptions(f.runner||'')}</select></td>
+    <td class="num"><input class="floatAmt" type="number" step="0.01" value="${f.float??''}" placeholder="0.00" oninput="recalc()"></td>
+    <td class="no-print"><button class="del" onclick="this.closest('tr').remove();recalc()">×</button></td>`;
+  document.getElementById('floatBody').appendChild(tr); recalc();
+}
+
+/* ---------- Recalc ---------- */
+function recalc(){
+  const R={}; const ensure=k=>(R[k]=R[k]||{float:0,cash:0,card:0,trip:0,cashTrip:0,returned:0});
+  // floats handed out (authoriser table)
+  document.querySelectorAll('#floatBody tr').forEach(tr=>{
+    const r=((tr.querySelector('.floatRunner')||{}).value)||'';
+    const a=parseFloat((tr.querySelector('.floatAmt')||{}).value)||0;
+    if(r) ensure(r).float += a;
+  });
+  let cash=0, card=0, trip=0; const methodTotals={};
+  document.querySelectorAll('#buyBody tr').forEach(tr=>{
+    const r=((tr.querySelector('.lineRunner')||{}).value)||'(unassigned)';
+    const m=((tr.querySelector('.payMethod')||{}).value)||'Cash';
+    const amt=parseFloat(tr.children[3].querySelector('input').value)||0;
+    methodTotals[m]=(methodTotals[m]||0)+amt;
+    if(m==='Cash'){ cash+=amt; ensure(r).cash+=amt; }
+    else { card+=amt; ensure(r).card+=amt; }   // card = non-cash bucket
+  });
+  renderMethodTotals(methodTotals);
+  document.querySelectorAll('#tripBody tr').forEach(tr=>{
+    const r=((tr.querySelector('.lineRunner')||{}).value)||'(unassigned)';
+    const fee=parseFloat(tr.children[1].querySelector('input').value)||0;
+    const paid=tr.children[2].querySelector('select').value==='yes';
+    trip+=fee; ensure(r).trip+=fee; if(paid) ensure(r).cashTrip+=fee;
+  });
+  // returned amounts: saved values + the logged-in runner's live field
+  (current&&current.floats||[]).forEach(f=>{ if(f&&f.runner){ ensure(f.runner); if(!R[f.runner].float && f.float) R[f.runner].float=f.float; R[f.runner].returned=f.returned||0; } });
+  if(ME.role==='runner'){ const my=document.getElementById('myReturned'); if(my){ ensure(ME.name).returned=parseFloat(my.value)||0; } }
+
+  const grand=cash+card+trip;
+  set('tCash',M(cash)); set('tCard',M(card)); set('tTrip',M(trip)); set('tGrand',M(grand));
+  const cardLimit=parseFloat(document.getElementById('cardLimit').value)||0;
+  const budget=parseFloat(document.getElementById('poBudget').value)||0;
+  flag('budgetCheck', budget>0, cash+card, budget, 'within budget', 'over budget');
+  flag('cardCheck', cardLimit>0, card, cardLimit, 'within limit', 'over card limit');
+
+  set('iCash',M(cash)); set('iCard',M(card)); set('iTrip',M(trip)); set('iOwed',M(trip));
+  set('invPo',document.getElementById('po').value||'—');
+  set('invRunner',Object.keys(R).filter(k=>k!=='(unassigned)').join(', ')||'—');
+  set('invDate',document.getElementById('date').value||'—');
+
+  renderRunnerBreakdown(R);
+  renderRecon(R);
+  applyRunnerVisibility();
+}
+function renderRunnerBreakdown(R){
+  const el=document.getElementById('runnerBreakdown'); if(!el)return;
+  let keys=Object.keys(R);
+  if(ME.role==='runner') keys=keys.filter(k=>k===ME.name);   // runner sees only their own row
+  keys=keys.filter(k=>{const v=R[k];return v.float||v.cash||v.card||v.trip||v.returned;});  // hide empty/stale rows
+  if(!keys.length){ el.innerHTML='<span class="muted">No entries yet.</span>'; return; }
+  el.innerHTML='<table><thead><tr><th>Runner</th><th class="num">Cash</th><th class="num">Non-cash</th><th class="num">Stock total</th><th class="num">Trip fee owed</th></tr></thead><tbody>'
+    + keys.map(k=>{const v=R[k]; return '<tr><td>'+esc(k)+'</td><td class="num">'+M(v.cash)+'</td><td class="num">'+M(v.card)+'</td><td class="num">'+M(v.cash+v.card)+'</td><td class="num"><b>'+M(v.trip)+'</b></td></tr>';}).join('')
+    + '</tbody></table>';
+}
+function renderMethodTotals(mt){
+  const el=document.getElementById('methodTotals'); if(!el)return;
+  const keys=Object.keys(mt).filter(k=>mt[k]>0);
+  if(!keys.length){ el.innerHTML='<span class="muted">No spend yet.</span>'; return; }
+  let total=0; keys.forEach(k=>total+=mt[k]);
+  el.innerHTML='<table><thead><tr><th>Payment method</th><th class="num">Total spent</th></tr></thead><tbody>'
+    + keys.map(k=>'<tr><td>'+esc(k)+'</td><td class="num">'+M(mt[k])+'</td></tr>').join('')
+    + '<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Total</td><td class="num">'+M(total)+'</td></tr>'
+    + '</tbody></table>';
+}
+function renderRecon(R){
+  const el=document.getElementById('reconTable'); if(!el)return;
+  let keys=Object.keys(R);
+  if(ME.role==='runner') keys=keys.filter(k=>k===ME.name);   // runner sees only their own reconciliation
+  keys=keys.filter(k=>{const v=R[k];return v.float||v.cash||v.card||v.trip||v.returned;});  // hide empty/stale rows
+  if(!keys.length){ el.innerHTML='<span class="muted">No floats or spend yet.</span>'; return; }
+  let tF=0,tC=0,tT=0,tS=0,tR=0,tV=0;
+  const body=keys.map(k=>{ const v=R[k]; const should=(v.float||0)-v.cash-v.cashTrip; const variance=(v.returned||0)-should;
+    tF+=v.float||0; tC+=v.cash; tT+=v.cashTrip; tS+=should; tR+=v.returned||0; tV+=variance;
+    const vc=Math.abs(variance)<0.005?'ok':(variance<0?'short':'ok');
+    return '<tr><td>'+esc(k)+'</td><td class="num">'+M(v.float||0)+'</td><td class="num">'+M(v.cash)+'</td><td class="num">'+M(v.cashTrip)+'</td><td class="num">'+M(should)+'</td><td class="num">'+M(v.returned||0)+'</td><td class="num variance '+vc+'">'+(variance>=0?'+ ':'– ')+M(Math.abs(variance))+'</td></tr>';
+  }).join('');
+  el.innerHTML='<table><thead><tr><th>Runner</th><th class="num">Float</th><th class="num">Cash spent</th><th class="num">Cash trips</th><th class="num">Should return</th><th class="num">Returned</th><th class="num">Variance</th></tr></thead><tbody>'
+    + body
+    + '<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Total</td><td class="num">'+M(tF)+'</td><td class="num">'+M(tC)+'</td><td class="num">'+M(tT)+'</td><td class="num">'+M(tS)+'</td><td class="num">'+M(tR)+'</td><td class="num">'+(tV>=0?'+ ':'– ')+M(Math.abs(tV))+'</td></tr>'
+    + '</tbody></table>';
+}
+function set(id,v){document.getElementById(id).textContent=v;}
+function flag(id,active,val,limit,okTxt,badTxt){
+  const el=document.getElementById(id);
+  if(!active){el.textContent='—';el.className='muted';return;}
+  const over=val>limit+0.005;
+  el.innerHTML=`${M(val)} of ${M(limit)} <span class="flag ${over?'over':'ok'}">${over?badTxt:okTxt}</span>`;
+  el.className='';
+}
+
+/* ---------- Status flow ---------- */
+function setStatus(s){
+  if(!current)return;
+  if(s==='authorised' && !document.getElementById('po').value){alert('Enter a PO number first.');return;}
+  if(s==='submitted'){
+    const missing=[...document.querySelectorAll('#buyBody tr')].filter(tr=>{
+      const shop=tr.children[0].querySelector('input').value.trim();
+      const amt=parseFloat(tr.children[3].querySelector('input').value)||0;
+      const active = shop || amt>0;
+      return active && !(tr._receiptFile && tr._receiptFile.url);
+    });
+    if(missing.length){ alert('Can’t submit yet — '+missing.length+' purchase line(s) still need a receipt attached. Attach a receipt to every supplier/transaction first.'); return; }
+  }
+  if(s==='approved'){current.approved_at=new Date().toISOString();}
+  current.status=s; renderStatus(); applyRole(); saveRun();
+}
+function renderStatus(){
+  const b=document.getElementById('statusBadge');
+  const labels={draft:'Draft',authorised:'Authorised',submitted:'Submitted',approved:'Approved',returned:'Sent back'};
+  b.textContent=labels[current.status]||current.status; b.className='badge '+current.status;
+  const stamp=document.getElementById('approvedStamp');
+  if(current.status==='approved'&&current.approved_at){stamp.classList.remove('hidden');stamp.textContent='✓ Approved '+new Date(current.approved_at).toLocaleString();}
+  else stamp.classList.add('hidden');
+}
+
+/* ---------- Role-based editability ---------- */
+function applyRole(){
+  const role=document.getElementById('role').value;
+  const st=current?current.status:'draft';
+  const authEdit = role==='authoriser' && (st==='draft'||st==='returned'||st==='authorised');
+  const runEdit  = role==='runner' && (st==='authorised'||st==='returned');   // no editing once submitted
+  const appEdit  = role==='approver' && st==='submitted';
+  enableSection('secAuth', authEdit);
+  enableSection('secRunner', runEdit);
+  enableSection('secApprover', appEdit);
+  show('btnAuthorise', authEdit);
+  show('btnSubmit', runEdit);
+  show('btnApprove', appEdit); show('btnReturn', appEdit);
+  show('btnAddBuy', runEdit); show('btnAddTrip', runEdit); show('btnAddFloat', authEdit);
+  document.getElementById('newRunBtn').style.display = role==='authoriser'?'':'none';
+  const mtb=document.getElementById('manageTeamBtn'); if(mtb) mtb.style.display = role==='authoriser'?'':'none';
+  applyRunnerLineLock(); applyRunnerVisibility();
+}
+function applyRunnerLineLock(){
+  if(ME.role!=='runner') return;   // only runners are restricted to their own lines
+  const st=current?current.status:'draft';
+  const editable=(st==='authorised'||st==='returned');   // locked once submitted
+  const lock=(tr)=>{
+    const r=((tr.querySelector('.lineRunner')||{}).value)||'';
+    const enable = editable && (r===ME.name || r==='');
+    tr.querySelectorAll('input,select,button').forEach(e=>{
+      if(e.classList.contains('lineRunner')) e.disabled=true;   // can't reassign a line to another runner
+      else e.disabled=!enable;
+    });
+  };
+  document.querySelectorAll('#buyBody tr').forEach(lock);
+  document.querySelectorAll('#tripBody tr').forEach(lock);
+}
+function applyRunnerVisibility(){
+  // runners only SEE their own lines & float; manager/accountant see everyone
+  const hideOthers=(ME.role==='runner');
+  const vis=(tr,r)=>{ tr.style.display=(!hideOthers || r===ME.name || r==='') ? '' : 'none'; };
+  document.querySelectorAll('#buyBody tr,#tripBody tr').forEach(tr=>vis(tr,((tr.querySelector('.lineRunner')||{}).value)||''));
+  document.querySelectorAll('#floatBody tr').forEach(tr=>vis(tr,((tr.querySelector('.floatRunner')||{}).value)||''));
+  // a delete/× button is only shown to whoever can actually use it (the manager for floats, the owning runner for his own line)
+  document.querySelectorAll('#detailView .del').forEach(b=>{ b.style.display = b.disabled ? 'none' : ''; });
+}
+function enableSection(id,on){document.querySelectorAll('#'+id+' input,#'+id+' select,#'+id+' textarea,#'+id+' button').forEach(e=>e.disabled=!on);}
+function show(id,on){const e=document.getElementById(id); if(e)e.style.display=on?'':'none';}
+
+/* ---------- Load / save run ---------- */
+function openRun(id){
+  if(id){ Store.list().then(rows=>{ const r=rows.find(x=>String(x.id)===String(id)); if(r)fill(r); }); }
+  else { current=blankRun(); fill(current); }
+  document.getElementById('listView').classList.add('hidden');
+  document.getElementById('teamView').classList.add('hidden');
+  document.getElementById('waitronView').classList.add('hidden');
+  document.getElementById('salesView').classList.add('hidden');
+  document.getElementById('salesSummaryView').classList.add('hidden');
+  document.getElementById('detailView').classList.remove('hidden');
+}
+function fill(r){
+  current=r;
+  document.getElementById('po').value=r.po_number||'';
+  document.getElementById('date').value=r.date||'';
+  document.getElementById('authoriser').value=r.authoriser||'';
+  document.getElementById('poBudget').value=r.po_budget||'';
+  document.getElementById('cardLimit').value=r.card_limit||'';
+  document.getElementById('authNotes').value=r.auth_notes||'';
+  document.getElementById('approver').value=r.approver||'';
+  document.getElementById('approverComments').value=r.approver_comments||'';
+  document.getElementById('floatBody').innerHTML=''; (r.floats||[]).forEach(addFloat);
+  const myR=document.getElementById('myReturned');
+  if(myR){ const mine=(r.floats||[]).find(f=>f.runner===ME.name); myR.value=(mine&&mine.returned)||'';
+    const hint=document.getElementById('returnHint');
+    if(hint) hint.textContent = ME.role==='runner' ? ('This is the cash you ('+ME.name+') hand back from your own float.') : '';
+  }
+  document.getElementById('buyBody').innerHTML=''; (r.purchases||[]).forEach(addBuy); if(!(r.purchases||[]).length)addBuy();
+  document.getElementById('tripBody').innerHTML=''; (r.trips||[]).forEach(addTrip); if(!(r.trips||[]).length)addTrip();
+  if(!current.receipts) current.receipts=[];
+  renderStatus(); applyRole(); recalc(); renderAttachments();
+}
+function gather(){
+  current.po_number=document.getElementById('po').value;
+  current.date=document.getElementById('date').value;
+  current.authoriser=document.getElementById('authoriser').value;
+  current.po_budget=parseFloat(document.getElementById('poBudget').value)||0;
+  current.card_limit=parseFloat(document.getElementById('cardLimit').value)||0;
+  current.auth_notes=document.getElementById('authNotes').value;
+  current.approver=document.getElementById('approver').value;
+  current.approver_comments=document.getElementById('approverComments').value;
+  const prevRet={}; (current.floats||[]).forEach(f=>{ if(f&&f.runner) prevRet[f.runner]=f.returned||0; });
+  const floats=[...document.querySelectorAll('#floatBody tr')].map(tr=>{
+    const runner=((tr.querySelector('.floatRunner')||{}).value)||'';
+    const float=parseFloat((tr.querySelector('.floatAmt')||{}).value)||0;
+    return {runner, float, returned: prevRet[runner]||0};
+  }).filter(f=>f.runner);
+  if(ME.role==='runner'){
+    const my=parseFloat((document.getElementById('myReturned')||{}).value)||0;
+    let e=floats.find(f=>f.runner===ME.name);
+    if(!e){ e={runner:ME.name, float:0, returned:0}; floats.push(e); }
+    e.returned=my;
+  }
+  current.floats=floats;
+  current.cash_float=floats.reduce((s,f)=>s+f.float,0);
+  current.actual_cash=floats.reduce((s,f)=>s+f.returned,0);
+  current.runner=floats.map(f=>f.runner).join(', ');
+  current.purchases=[...document.querySelectorAll('#buyBody tr')].map(tr=>({
+    shop:tr.children[0].querySelector('input').value, items:tr.children[1].querySelector('input').value,
+    method:((tr.querySelector('.payMethod')||{}).value)||'Cash',
+    amount:parseFloat(tr.children[3].querySelector('input').value)||0,
+    receiptFile: tr._receiptFile||null,
+    runner:(tr.querySelector('.lineRunner')||{}).value||'' }));
+  current.trips=[...document.querySelectorAll('#tripBody tr')].map(tr=>({
+    dest:tr.children[0].querySelector('input').value,
+    fee:parseFloat(tr.children[1].querySelector('input').value)||0,
+    paidCash:tr.children[2].querySelector('select').value==='yes',
+    runner:(tr.querySelector('.lineRunner')||{}).value||'' }));
+  return current;
+}
+async function saveRun(){
+  try{ const saved=await Store.save(gather()); current=saved||current; alert('Saved'); }
+  catch(e){ alert('Save failed: '+e.message); }
+}
+
+/* ---------- Attachments (PO doc + receipts) ---------- */
+async function persist(){ const saved=await Store.save(gather()); current=saved||current; }
+async function ensureSaved(){ if(!current.id){ await persist(); } return current.id; }
+async function uploadTo(folder, file){
+  if(!sb) throw new Error('Attachments need the live database.');
+  const id=await ensureSaved();
+  const safe=file.name.replace(/[^\w.\-]+/g,'_');
+  const path=id+'/'+folder+'/'+Date.now()+'_'+safe;
+  const {error}=await sb.storage.from('docs').upload(path, file, {contentType:file.type||undefined});
+  if(error) throw error;
+  const {data}=sb.storage.from('docs').getPublicUrl(path);
+  return {name:file.name, url:data.publicUrl};
+}
+async function attachPO(input){
+  if(!input.files||!input.files[0])return;
+  const box=document.getElementById('poDocBox'); box.textContent='Uploading…';
+  try{ current.po_doc=await uploadTo('po', input.files[0]); await persist(); }
+  catch(e){ alert('Upload failed: '+e.message); }
+  input.value=''; renderAttachments();
+}
+function renderAttachments(){
+  const po=document.getElementById('poDocBox');
+  if(po) po.innerHTML=(current&&current.po_doc&&current.po_doc.url)
+    ? '📎 <a href="'+current.po_doc.url+'" target="_blank" rel="noopener">'+esc(current.po_doc.name||'Purchase order')+'</a>'
+    : '<span class="muted">No PO attached yet.</span>';
+}
+
+/* ---------- List ---------- */
+async function refreshList(){
+  const wrap=document.getElementById('history'); wrap.innerHTML='<p class="muted">Loading…</p>';
+  try{
+    let rows=await Store.list();
+    rows=rows.filter(r=> (r.type||'po')===listMode);
+    if((listMode==='waitron'||listMode==='sales') && ME.role==='waitron') rows=rows.filter(r=>(r.runner||'')===ME.name);
+    if(!rows.length){wrap.innerHTML='<p class="muted">Nothing here yet'+(ME.role==='authoriser'?' — click “+ New”.':'.')+'</p>';return;}
+    const canDelete = ME.role==='authoriser';
+    const inner=(r)=>{
+      const delBtn = canDelete ? '<button class="del" onclick="deleteRun(\''+r.id+'\')">🗑</button>' : '';
+      if((r.type||'po')==='waitron'){
+        const spent=(r.purchases||[]).reduce((s,b)=>s+(b.amount||0),0);
+        return '<div><b>'+esc(r.runner||'(no waitron)')+'</b> &middot; '+esc(r.date||'')+' <span class="badge '+r.status+'">'+r.status+'</span><div class="meta">Float '+M(r.cash_float||0)+' · Spent '+M(spent)+' · Returned '+M(r.actual_cash||0)+'</div></div><div><button class="btn ghost small" onclick="openWaitron(\''+r.id+'\')">Open</button> '+delBtn+'</div>';
+      } else if(r.type==='sales'){
+        const pay=(r.sales&&r.sales.pay)||[]; const diff=pay.reduce((s,p)=>s+((p.counted||0)-(p.expected||0)),0);
+        const settle=(r.sales&&r.sales.settle)?' · <span class="muted">'+esc(r.sales.settle)+'</span>':'';
+        return '<div><b>'+esc(r.runner||'(no employee)')+'</b> <span class="badge '+r.status+'">'+r.status+'</span><div class="meta">Difference: <span class="variance '+(diff<0?'short':'ok')+'">'+(diff>=0?'+ ':'– ')+M(Math.abs(diff))+'</span>'+settle+'</div></div><div><button class="btn ghost small" onclick="openSales(\''+r.id+'\')">Open</button> '+delBtn+'</div>';
+      } else {
+        const spent=(r.purchases||[]).reduce((s,b)=>s+(b.amount!=null?b.amount:((b.cash||0)+(b.card||0))),0);
+        const trip=(r.trips||[]).reduce((s,t)=>s+(t.fee||0),0);
+        return '<div><b>'+esc(r.po_number||'(no PO)')+'</b> &middot; '+esc(r.date||'')+' <span class="badge '+r.status+'">'+r.status+'</span><div class="meta">'+esc(r.runner||'—')+' &middot; Spent '+M(spent)+' · Trips '+M(trip)+'</div></div><div><button class="btn ghost small" onclick="openRun(\''+r.id+'\')">Open</button> '+delBtn+'</div>';
+      }
+    };
+    if(!dateFilter){
+      const byDate={}; rows.forEach(r=>{ const d=r.date||'(no date)'; (byDate[d]=byDate[d]||[]).push(r); });
+      const dates=Object.keys(byDate).sort().reverse();
+      const kind = listMode==='sales'?'cash-ups':(listMode==='waitron'?'petty-cash logs':'purchase orders');
+      wrap.innerHTML='<p class="hint" style="margin:0 0 10px;">Click a date to open its '+kind+'.</p>'
+        + dates.map(dt=>{ const n=byDate[dt].length; let extra='';
+            if(listMode==='sales'){ let td=0; byDate[dt].forEach(r=>(r.sales&&r.sales.pay||[]).forEach(p=>td+=((p.counted||0)-(p.expected||0)))); extra=' · total diff <span class="'+(td<0?'rpt-neg':'')+'">'+(td>=0?'+ ':'– ')+M(Math.abs(td))+'</span>'; }
+            return '<div class="history-item" style="cursor:pointer;" onclick="setDateFilter(\''+esc(dt)+'\')"><div><b>📅 '+esc(dt)+'</b><div class="meta">'+n+' '+(n!==1?'records':'record')+extra+'</div></div><div><button class="btn ghost small">Open →</button></div></div>';
+          }).join('');
+      return;
+    }
+    const back='<div class="row-actions no-print" style="margin-bottom:10px;align-items:center;"><button class="btn ghost small" onclick="setDateFilter(null)">← All dates</button> <b>📅 '+esc(dateFilter)+'</b></div>';
+    const dayRows=rows.filter(r=>(r.date||'(no date)')===dateFilter);
+    wrap.innerHTML=back+(dayRows.length?'':'<p class="muted">Nothing on this date.</p>');
+    dayRows.forEach(r=>{ const el=document.createElement('div'); el.className='history-item'; el.innerHTML=inner(r); wrap.appendChild(el); });
+  }catch(e){wrap.innerHTML='<p class="muted">Could not load: '+esc(e.message)+'</p>';}
+}
+async function deleteRun(id){ if(!confirm('Delete this run?'))return; await Store.remove(id); refreshList(); }
+function showList(){['detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView'].forEach(id=>document.getElementById(id).classList.add('hidden'));document.getElementById('listView').classList.remove('hidden');updateModeUI();refreshList();}
+function showTeam(){document.getElementById('listView').classList.add('hidden');document.getElementById('detailView').classList.add('hidden');document.getElementById('teamView').classList.remove('hidden');renderTeam();}
+async function renderTeam(){
+  await loadTeam();
+  const labels={authoriser:'Manager (Authoriser)',runner:'Runner',waitron:'Waitron',approver:'Approver (Accountant)',viewer:'Viewer (read only)'};
+  const el=document.getElementById('teamList');
+  el.innerHTML='<table><thead><tr><th>Email</th><th>Name</th><th>Role</th><th class="no-print"></th></tr></thead><tbody>'
+    + TEAM.map(t=>'<tr><td>'+esc(t.email)+'</td><td>'+esc(t.name||'')+'</td><td>'+(labels[t.role]||t.role)+'</td><td class="no-print"><button class="del" onclick="removeMember(\''+esc(t.email)+'\')">remove</button></td></tr>').join('')
+    + '</tbody></table>';
+}
+async function addMember(){
+  const email=document.getElementById('tmEmail').value.trim().toLowerCase();
+  const name=document.getElementById('tmName').value.trim();
+  const role=document.getElementById('tmRole').value;
+  if(!email){alert('Enter an email first.');return;}
+  const {error}=await sb.from('team').upsert({email,name,role});
+  if(error){alert('Could not save: '+error.message);return;}
+  document.getElementById('tmEmail').value=''; document.getElementById('tmName').value='';
+  renderTeam();
+}
+async function removeMember(email){
+  if(!confirm('Remove '+email+' from the team?'))return;
+  const {error}=await sb.from('team').delete().eq('email',email);
+  if(error){alert('Could not remove: '+error.message);return;}
+  renderTeam();
+}
+
+/* ---------- Export / print ---------- */
+function exportCSV(){
+  const d=gather();
+  let rows=[['Jays Runner PO Log'],['PO',d.po_number],['Date',d.date],['Status',d.status],
+    ['Authorised by',d.authoriser],['Cash float',d.cash_float],['Card limit',d.card_limit],['PO budget',d.po_budget],[''],
+    ['PURCHASES'],['Shop','Items','Payment method','Amount (M)','Receipt link']];
+  d.purchases.forEach(b=>rows.push([b.shop,b.items,b.method||'',(b.amount!=null?b.amount:((b.cash||0)+(b.card||0))), b.receiptFile?b.receiptFile.url:'(none)']));
+  rows.push([''],['TRIPS'],['Destination','Fee (M)','Paid in cash']);
+  d.trips.forEach(t=>rows.push([t.dest,t.fee,t.paidCash?'Yes':'No']));
+  const cash=d.purchases.reduce((s,b)=>s+b.cash,0), card=d.purchases.reduce((s,b)=>s+b.card,0);
+  const trip=d.trips.reduce((s,t)=>s+t.fee,0), tripCash=d.trips.filter(t=>t.paidCash).reduce((s,t)=>s+t.fee,0);
+  rows.push([''],['SUMMARY'],['Stock cash',cash],['Stock card',card],['Trip charges',trip],
+    ['Total spent',cash+card+trip],['Expected cash returned',d.cash_float-cash-tripCash],
+    ['Actual cash returned',d.actual_cash],['Variance',d.actual_cash-(d.cash_float-cash-tripCash)],
+    ['Approved by',d.approver],['Comments',d.approver_comments]);
+  const csv=rows.map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='Jays-PO-'+(d.po_number||'run')+'.csv'; a.click();
+}
+/* ---------- Clean PDF reports ---------- */
+function kv(label,val){ return '<div><span class="k">'+label+':</span> <b>'+esc(val==null?'':String(val))+'</b></div>'; }
+function rptHead(title,sub){ return '<div class="rpt-head"><div class="rpt-logo">J</div><div><div class="rpt-title">'+title+'</div><div class="rpt-sub">Jays Restaurant &middot; '+sub+'</div></div></div>'; }
+function rptTable(headers,rows){ return '<table class="rpt-tbl"><thead><tr>'+headers.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join('')+'</tbody></table>'; }
+function rptSign(prepared,approver,when){ return '<div class="rpt-sign"><div>Prepared by: '+esc(prepared||'')+'</div><div>Approved by: '+esc(approver||'')+(when?(' &nbsp; '+new Date(when).toLocaleDateString()):'')+'</div></div>'; }
+function reportPO(){
+  const d=gather();
+  const cash=(d.purchases||[]).filter(p=>(p.method||'')==='Cash').reduce((s,p)=>s+(p.amount||0),0);
+  const total=(d.purchases||[]).reduce((s,p)=>s+(p.amount||0),0); const trip=(d.trips||[]).reduce((s,t)=>s+(t.fee||0),0);
+  let h=rptHead('Purchase Order '+(d.po_number||''),'Runner Purchase Order');
+  h+='<div class="rpt-meta">'+kv('Date',d.date)+kv('Authorised by',d.authoriser)+kv('Status',d.status)+kv('Budget',M(d.po_budget))+kv('Card limit',M(d.card_limit))+'</div>';
+  if((d.floats||[]).length) h+='<h3>Cash floats</h3>'+rptTable(['Runner','Float (M)'],d.floats.map(f=>[esc(f.runner),M(f.float)]));
+  h+='<h3>Purchases</h3>'+rptTable(['Shop','Items','Method','Amount (M)','Runner'],(d.purchases||[]).map(p=>[esc(p.shop),esc(p.items),esc(p.method||''),M(p.amount||0),esc(p.runner||'')]));
+  if((d.trips||[]).length) h+='<h3>Trip charges</h3>'+rptTable(['Destination','Fee (M)','Paid cash','Runner'],d.trips.map(t=>[esc(t.dest),M(t.fee),t.paidCash?'Yes':'No',esc(t.runner||'')]));
+  h+='<div class="rpt-tot">Stock (cash): '+M(cash)+' &nbsp;&middot;&nbsp; Stock (non-cash): '+M(total-cash)+' &nbsp;&middot;&nbsp; Trip charges owed: '+M(trip)+' &nbsp;&middot;&nbsp; Total spent: '+M(total+trip)+'</div>';
+  h+=rptSign(d.authoriser,d.approver,d.approved_at); return h;
+}
+function reportWaitron(){
+  const d=gatherWaitron(); const spent=(d.purchases||[]).reduce((s,e)=>s+(e.amount||0),0);
+  const should=(d.cash_float||0)-spent, variance=(d.actual_cash||0)-should;
+  let h=rptHead('Waitron Petty Cash','Waitron: '+(d.runner||''));
+  h+='<div class="rpt-meta">'+kv('Date',d.date)+kv('Waitron',d.runner)+kv('Status',d.status)+'</div>';
+  h+='<h3>Expenses</h3>'+rptTable(['Category','Note','Amount (M)'],(d.purchases||[]).map(e=>[esc(e.category||''),esc(e.note||''),M(e.amount||0)]));
+  h+='<div class="rpt-tot">Float given: '+M(d.cash_float)+' &nbsp;&middot;&nbsp; Spent: '+M(spent)+' &nbsp;&middot;&nbsp; Should return: '+M(should)+' &nbsp;&middot;&nbsp; Returned: '+M(d.actual_cash)+' &nbsp;&middot;&nbsp; Variance: <span class="'+(variance<0?'rpt-neg':'rpt-pos')+'">'+M(variance)+'</span></div>';
+  h+=rptSign(d.runner,d.approver,d.approved_at); return h;
+}
+function reportSales(){
+  const d=gatherSales(); const s=d.sales||{};
+  let h=rptHead('Daily Sales Cash-up','Employee: '+(d.runner||''));
+  h+='<div class="rpt-meta">'+kv('Date',d.date)+kv('Employee',d.runner)+kv('Opening float',M(d.cash_float))+kv('Status',d.status)+'</div>';
+  const dr=DENOMS.filter(v=>s.denoms&&s.denoms[v]).map(v=>[M(v),s.denoms[v],M(v*s.denoms[v])]);
+  if(dr.length) h+='<h3>Cash count</h3>'+rptTable(['Note (M)','No. notes','Amount (M)'],dr);
+  let td=0; const pr=(s.pay||[]).map(p=>{ const diff=(p.counted||0)-(p.expected||0); td+=diff; return [esc(p.type),M(p.counted||0),M(p.expected||0),'<span class="'+(diff<0?'rpt-neg':'rpt-pos')+'">'+M(diff)+'</span>']; });
+  h+='<h3>Counted vs POS</h3>'+rptTable(['Payment type','Counted (M)','Expected (M)','Difference'],pr);
+  h+='<div class="rpt-tot">Tips: '+M(s.tips||0)+' &nbsp;&middot;&nbsp; Total difference: <span class="'+(td<0?'rpt-neg':'rpt-pos')+'">'+M(td)+'</span></div>';
+  if(s.explanation) h+='<h3>Shortage explanation</h3><div style="font-size:12px;">'+esc(s.explanation)+(s.shortageReceipt&&s.shortageReceipt.url?' &nbsp;(receipt attached)':'')+'</div>';
+  if(s.explainedAmt||s.settle){ const dff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const shg=dff<0?-dff:0; const rm=Math.max(0,shg-(s.explainedAmt||0));
+    h+='<div class="rpt-tot">Total short: '+M(shg)+' &nbsp;&middot;&nbsp; Explained: '+M(s.explainedAmt||0)+' &nbsp;&middot;&nbsp; Remaining: '+M(rm)+(s.settle?(' &middot; '+esc(s.settle)):'')+'</div>'; }
+  h+=rptSign(d.runner,d.approver,d.approved_at); return h;
+}
+function reportSummary(){
+  const date=document.getElementById('sumDate').value; const cols=SALES_PAY;
+  let rows=[]; const gt={}; let gtTotal=0,gtDiff=0,totalCash=0,totalTips=0;
+  sumRecords.forEach(r=>{ const t=drawerTotals(r);
+    rows.push([esc(r.runner||'')].concat(cols.map(c=>{const v=t.byType[c]||0;gt[c]=(gt[c]||0)+v;return M(v);})).concat([M(t.total),'<span class="'+(t.diff<0?'rpt-neg':'rpt-pos')+'">'+M(t.diff)+'</span>']));
+    gtTotal+=t.total;gtDiff+=t.diff;totalCash+=t.cash;totalTips+=t.tips; });
+  rows.push(['GRAND TOTAL'].concat(cols.map(c=>M(gt[c]||0))).concat([M(gtTotal),M(gtDiff)]));
+  let h=rptHead('Daily Sales Summary',date||'');
+  h+='<h3>Drawers</h3>'+rptTable(['Employee'].concat(cols).concat(['Total','Diff']),rows);
+  const ded=['dDeposit','dPetty','dCab','dFuel','dBread','dSavings'].reduce((s,id)=>s+snum(id),0); const net=totalCash-totalTips;
+  h+='<div class="rpt-tot">Total cash: '+M(totalCash)+' &nbsp;&middot;&nbsp; Tips: '+M(totalTips)+' &nbsp;&middot;&nbsp; Net cash: '+M(net)+' &nbsp;&middot;&nbsp; Deductions: '+M(ded)+'<br><b>Cash in hand: '+M(net-ded)+'</b></div>';
+  return h;
+}
+function buildPrintReport(){
+  const pa=document.getElementById('printArea'); if(!pa) return;
+  const vis=id=>!document.getElementById(id).classList.contains('hidden');
+  try{
+    if(vis('detailView')) pa.innerHTML=reportPO();
+    else if(vis('waitronView')) pa.innerHTML=reportWaitron();
+    else if(vis('salesView')) pa.innerHTML=reportSales();
+    else if(vis('salesSummaryView')) pa.innerHTML=reportSummary();
+    else if(vis('shortagesView')) pa.innerHTML=reportShortages();
+    else pa.innerHTML='';
+  }catch(e){ pa.innerHTML='<p>Could not build report: '+esc(e.message)+'</p>'; }
+}
+function printReport(){ buildPrintReport(); document.body.classList.add('printing'); window.print(); setTimeout(()=>document.body.classList.remove('printing'),800); }
+
+/* ---------- Auth (password + magic link) ---------- */
+function togglePass(b){ const i=document.getElementById('loginPass'); if(i.type==='password'){i.type='text';b.textContent='hide';} else {i.type='password';b.textContent='show';} }
+async function signInPassword(){
+  const email=document.getElementById('loginEmail').value.trim();
+  const password=document.getElementById('loginPass').value;
+  const msg=document.getElementById('loginMsg');
+  if(!email||!password){msg.textContent='Enter your email and password.';return;}
+  msg.textContent='Signing in…';
+  const {error}=await sb.auth.signInWithPassword({email,password});
+  if(error) msg.textContent='Error: '+error.message;
+}
+async function resetPassword(){
+  const email=document.getElementById('loginEmail').value.trim();
+  const msg=document.getElementById('loginMsg');
+  if(!email){msg.textContent='Type your email above first, then click this.';return;}
+  msg.textContent='Sending…';
+  const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:window.location.href.split('#')[0]});
+  msg.textContent=error?('Error: '+error.message):'✓ Check your email to set your password.';
+}
+async function promptNewPassword(){
+  const p=prompt('Set a new password (at least 6 characters):');
+  if(!p) return;
+  const {error}=await sb.auth.updateUser({password:p});
+  if(error){ alert('Error: '+error.message); return; }
+  alert('Password set. You are now signed in.');
+  const {data:{session}}=await sb.auth.getSession();
+  if(session) showApp(session);
+}
+async function sendMagicLink(){
+  const email=document.getElementById('loginEmail').value.trim();
+  const msg=document.getElementById('loginMsg');
+  if(!email){msg.textContent='Enter your email first.';return;}
+  msg.textContent='Sending…';
+  const {error}=await sb.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.href.split('#')[0]}});
+  msg.textContent=error?('Error: '+error.message):'✓ Check your email — click the link to sign in.';
+}
+async function signOut(){ await sb.auth.signOut(); }
+async function changePassword(){
+  const p=prompt('Enter your new password (at least 6 characters):');
+  if(!p) return;
+  if(p.length<6){ alert('Password must be at least 6 characters.'); return; }
+  const p2=prompt('Re-enter the new password to confirm:');
+  if(p!==p2){ alert('The two passwords did not match — nothing was changed.'); return; }
+  const {error}=await sb.auth.updateUser({password:p});
+  alert(error ? ('Could not change password: '+error.message) : '✓ Password changed. Use your new password next time you sign in.');
+}
+function showLogin(){ document.getElementById('loginGate').classList.remove('hidden'); document.getElementById('userBox').classList.add('hidden'); }
+async function showApp(session){
+  document.getElementById('loginGate').classList.add('hidden');
+  await loadTeam();
+  const email=(session.user.email||'').toLowerCase();
+  const role=teamMap[email]||'viewer';
+  const t=TEAM.find(x=>(x.email||'').toLowerCase()===email);
+  ME={email:session.user.email, name:(t&&t.name)||session.user.email, role};
+  const sel=document.getElementById('role');
+  sel.value=role; sel.disabled=true;            // role is fixed by login
+  sel.style.display='none';                      // hide the picker — role is locked
+  if(sel.previousElementSibling) sel.previousElementSibling.style.display='none';
+  const labels={authoriser:'Manager (Authoriser)',runner:'Runner',waitron:'Waitron',approver:'Approver (Accountant)',viewer:'Viewer (read only)'};
+  const ub=document.getElementById('userBox'); ub.classList.remove('hidden');
+  ub.innerHTML='<b>'+labels[role]+'</b> · '+esc(session.user.email)+' <button onclick="changePassword()">Change password</button> <button onclick="signOut()">Sign out</button>';
+  listMode=(role==='waitron')?'sales':'po';
+  updateModeUI();
+  refreshList(); applyRole();
+}
+
+/* ========================= WAITRON PETTY CASH ========================= */
+let listMode='po';
+let dateFilter=null;
+function setDateFilter(d){ dateFilter=d; refreshList(); }
+function waitronNames(){ return TEAM.filter(t=>t.role==='waitron').map(t=>t.name||t.email); }
+function setMode(m){ listMode=m; dateFilter=null; updateModeUI(); refreshList(); }
+function updateModeUI(){
+  const btns={po:'modePoBtn',waitron:'modeWaitronBtn',sales:'modeSalesBtn'};
+  let allowed;
+  if(ME.role==='runner') allowed=['po'];
+  else if(ME.role==='waitron') allowed=['waitron','sales'];
+  else allowed=['po','waitron','sales'];
+  if(!allowed.includes(listMode)) listMode=allowed[0];
+  Object.keys(btns).forEach(m=>{ const b=document.getElementById(btns[m]); if(b){ b.className='btn '+(listMode===m?'primary':'ghost')+' small'; b.style.display=allowed.includes(m)?'':'none'; } });
+  const mt=document.getElementById('modeToggle'); if(mt) mt.style.display=allowed.length>1?'':'none';
+  const titles={po:'Purchase order runs',waitron:'Waitron petty cash',sales:'Daily sales cash-up'};
+  const title=document.getElementById('listTitle'); if(title) title.textContent=titles[listMode]||'';
+  const nb=document.getElementById('newRunBtn');
+  if(nb){ const lbl={po:'+ New run',waitron:'+ New waitron float',sales:'+ New cash-up'};
+    nb.textContent=lbl[listMode]||'+ New';
+    const canNew=(listMode==='sales')?(ME.role==='waitron'||ME.role==='authoriser'):(ME.role==='authoriser');
+    nb.style.display=canNew?'':'none'; }
+  const mgrSales = (listMode==='sales' && ME.role!=='waitron' && ME.role!=='runner');
+  const ssb=document.getElementById('salesSummaryBtn'); if(ssb) ssb.style.display=mgrSales?'':'none';
+  const shb=document.getElementById('shortagesBtn'); if(shb) shb.style.display=mgrSales?'':'none';
+}
+function newRecord(){ if(listMode==='waitron') openWaitron(null); else if(listMode==='sales') openSales(null); else openRun(null); }
+function blankWaitron(){
+  return {id:null, type:'waitron', date:new Date().toISOString().slice(0,10), status:'draft',
+    authoriser:'', runner:'', cash_float:0, actual_cash:0, purchases:[],
+    approver:'', approver_comments:'', approved_at:null,
+    po_number:'', po_budget:0, card_limit:0, auth_notes:'', trips:[], floats:[], po_doc:null, receipts:[]};
+}
+function openWaitron(id){
+  if(id){ Store.list().then(rows=>{ const r=rows.find(x=>String(x.id)===String(id)); if(r)fillWaitron(r); }); }
+  else { current=blankWaitron(); if(ME.role==='waitron') current.runner=ME.name; fillWaitron(current); }
+  document.getElementById('listView').classList.add('hidden');
+  document.getElementById('detailView').classList.add('hidden');
+  document.getElementById('teamView').classList.add('hidden');
+  document.getElementById('salesView').classList.add('hidden');
+  document.getElementById('salesSummaryView').classList.add('hidden');
+  document.getElementById('waitronView').classList.remove('hidden');
+}
+function fillWaitron(r){
+  current=r;
+  document.getElementById('wDate').value=r.date||'';
+  document.getElementById('wAuthoriser').value=r.authoriser||'';
+  document.getElementById('wFloat').value=r.cash_float||'';
+  document.getElementById('wReturned').value=r.actual_cash||'';
+  document.getElementById('wApprover').value=r.approver||'';
+  document.getElementById('wApproverComments').value=r.approver_comments||'';
+  const sel=document.getElementById('wPerson');
+  let names=waitronNames(); if(r.runner && !names.includes(r.runner)) names=[r.runner].concat(names);
+  sel.innerHTML='<option value=""></option>'+names.map(n=>'<option'+(n===r.runner?' selected':'')+'>'+esc(n)+'</option>').join('');
+  document.getElementById('wExpBody').innerHTML=''; (r.purchases||[]).forEach(addExpense); if(!(r.purchases||[]).length)addExpense();
+  renderWStatus(); applyWRole(); recalcW();
+}
+function gatherWaitron(){
+  current.type='waitron';
+  current.date=document.getElementById('wDate').value;
+  current.authoriser=document.getElementById('wAuthoriser').value;
+  current.runner=document.getElementById('wPerson').value;
+  current.cash_float=parseFloat(document.getElementById('wFloat').value)||0;
+  current.actual_cash=parseFloat(document.getElementById('wReturned').value)||0;
+  current.approver=document.getElementById('wApprover').value;
+  current.approver_comments=document.getElementById('wApproverComments').value;
+  current.purchases=[...document.querySelectorAll('#wExpBody tr')].map(tr=>({
+    category:(tr.querySelector('.wCat')||{}).value||'',
+    note:(tr.querySelector('.wNote')||{}).value||'',
+    amount:parseFloat((tr.querySelector('.wAmt')||{}).value)||0,
+    receiptFile: tr._receiptFile||null }));
+  return current;
+}
+function recalcW(){
+  let spent=0;
+  document.querySelectorAll('#wExpBody tr').forEach(tr=>{ spent+=parseFloat((tr.querySelector('.wAmt')||{}).value)||0; });
+  const float=parseFloat(document.getElementById('wFloat').value)||0;
+  const returned=parseFloat(document.getElementById('wReturned').value)||0;
+  const should=float-spent, variance=returned-should;
+  set('wrFloat',M(float)); set('wrSpent',M(spent)); set('wrShould',M(should)); set('wrReturned',M(returned));
+  const v=document.getElementById('wrVariance'); v.textContent=(variance>=0?'+ ':'– ')+M(Math.abs(variance));
+  v.className='amt total variance '+(Math.abs(variance)<0.005?'ok':(variance<0?'short':'ok'));
+}
+function addExpense(e={}){
+  const tr=document.createElement('tr'); tr._receiptFile=e.receiptFile||null;
+  const cats=['Fuel','Airtime','Change given','Other'];
+  tr.innerHTML=`
+    <td><select class="wCat" onchange="recalcW()">${cats.map(c=>'<option'+(c===e.category?' selected':'')+'>'+c+'</option>').join('')}</select></td>
+    <td><input class="wNote" value="${esc(e.note)}" placeholder="e.g. bike fuel"></td>
+    <td class="num"><input class="wAmt" type="number" step="0.01" value="${e.amount??''}" placeholder="0.00" oninput="recalcW()"></td>
+    <td class="wRcptCell"></td>
+    <td class="no-print"><button class="del" onclick="this.closest('tr').remove();recalcW()">×</button></td>`;
+  document.getElementById('wExpBody').appendChild(tr); renderWRcptCell(tr); recalcW();
+}
+function renderWRcptCell(tr){
+  const cell=tr.querySelector('.wRcptCell'); const f=tr._receiptFile;
+  if(f&&f.url){
+    cell.innerHTML='✓ <a href="'+f.url+'" target="_blank" rel="noopener">view</a> <button type="button" class="del no-print" onclick="clearWReceipt(this)">✕</button><input type="file" accept="application/pdf,image/*" class="no-print wRcptInput" style="display:none">';
+  } else {
+    cell.innerHTML='<button type="button" class="btn ghost small no-print" onclick="this.parentElement.querySelector(\'.wRcptInput\').click()">Attach</button> <span style="color:var(--bad);font-size:11px;">required</span><input type="file" accept="application/pdf,image/*" class="no-print wRcptInput" style="display:none">';
+  }
+  const inp=cell.querySelector('.wRcptInput'); if(inp) inp.onchange=()=>attachWReceipt(tr,inp);
+}
+async function persistW(){ const s=await Store.save(gatherWaitron()); current=s||current; }
+async function ensureSavedW(){ if(!current.id){ await persistW(); } return current.id; }
+async function uploadW(folder,file){
+  if(!sb) throw new Error('Attachments need the live database.');
+  const id=await ensureSavedW(); const safe=file.name.replace(/[^\w.\-]+/g,'_');
+  const path=id+'/'+folder+'/'+Date.now()+'_'+safe;
+  const {error}=await sb.storage.from('docs').upload(path,file,{contentType:file.type||undefined});
+  if(error) throw error;
+  const {data}=sb.storage.from('docs').getPublicUrl(path);
+  return {name:file.name,url:data.publicUrl};
+}
+async function attachWReceipt(tr,inp){
+  if(!inp.files||!inp.files[0])return;
+  try{ tr._receiptFile=await uploadW('waitron',inp.files[0]); await persistW(); }
+  catch(e){ alert('Upload failed: '+e.message); }
+  renderWRcptCell(tr);
+}
+function clearWReceipt(btn){ const tr=btn.closest('tr'); if(!confirm('Remove this receipt?'))return; tr._receiptFile=null; persistW().then(()=>renderWRcptCell(tr)); }
+function setWStatus(s){
+  if(!current)return;
+  if(s==='authorised' && !document.getElementById('wPerson').value){alert('Choose a waitron first.');return;}
+  if(s==='submitted'){
+    const missing=[...document.querySelectorAll('#wExpBody tr')].filter(tr=>{
+      const amt=parseFloat((tr.querySelector('.wAmt')||{}).value)||0;
+      const note=(tr.querySelector('.wNote')||{}).value.trim();
+      return (amt>0||note) && !(tr._receiptFile&&tr._receiptFile.url);
+    });
+    if(missing.length){ alert('Can’t submit — '+missing.length+' expense(s) still need a receipt attached.'); return; }
+  }
+  if(s==='approved'){current.approved_at=new Date().toISOString();}
+  current.status=s; renderWStatus(); applyWRole(); saveWaitron();
+}
+function renderWStatus(){
+  const b=document.getElementById('wStatusBadge');
+  const labels={draft:'Draft',authorised:'Authorised',submitted:'Submitted',approved:'Approved',returned:'Sent back'};
+  b.textContent=labels[current.status]||current.status; b.className='badge '+current.status;
+  const stamp=document.getElementById('wApprovedStamp');
+  if(current.status==='approved'&&current.approved_at){stamp.classList.remove('hidden');stamp.textContent='✓ Approved '+new Date(current.approved_at).toLocaleString();}
+  else stamp.classList.add('hidden');
+}
+function applyWRole(){
+  const role=ME.role, st=current?current.status:'draft';
+  const authEdit=role==='authoriser' && (st==='draft'||st==='returned'||st==='authorised');
+  const wEdit   =role==='waitron'    && (st==='authorised'||st==='returned');
+  const appEdit =role==='approver'   && st==='submitted';
+  // a waitron never sees the manager's float-setting section or the approver section
+  const isW = role==='waitron';
+  document.getElementById('secWAuth').style.display = isW ? 'none' : '';
+  document.getElementById('secWApprover').style.display = isW ? 'none' : '';
+  enableSection('secWAuth', authEdit);
+  enableSection('secWExpense', wEdit);
+  enableSection('secWApprover', appEdit);
+  show('wBtnAuthorise', authEdit); show('wBtnSubmit', wEdit);
+  show('wBtnApprove', appEdit); show('wBtnReturn', appEdit); show('wBtnAddExp', wEdit);
+  document.querySelectorAll('#waitronView .del').forEach(b=>{ b.style.display=b.disabled?'none':''; });
+}
+async function saveWaitron(){ try{ const s=await Store.save(gatherWaitron()); current=s||current; alert('Saved'); }catch(e){ alert('Save failed: '+e.message); } }
+
+/* ========================= DAILY SALES CASH-UP ========================= */
+const DENOMS=[200,100,50,20,10,5,2,1,0.5];
+const SALES_PAY=['Cash','Card','M-Pesa','ECOCASH','NetBank','Tyme Bank','Post Bank'];
+/* Waitron names for the cash-up dropdown — edit this list anytime. */
+const WAITRON_NAMES=['Nolly','Lizzy','Twinpy','Chief','Mampe','TP','Morie','Thato','Lemo'];
+function blankSales(){
+  return {id:null, type:'sales', date:new Date().toISOString().slice(0,10), status:'draft', runner:'', cash_float:0,
+    sales:{denoms:{},tips:0,pay:[]},
+    authoriser:'', approver:'', approver_comments:'', approved_at:null,
+    po_number:'',po_budget:0,card_limit:0,auth_notes:'',purchases:[],trips:[],actual_cash:0,floats:[],po_doc:null,receipts:[]};
+}
+function openSales(id){
+  if(id){ Store.list().then(rows=>{ const r=rows.find(x=>String(x.id)===String(id)); if(r)fillSales(r); }); }
+  else { current=blankSales(); if(ME.role==='waitron') current.runner=ME.name; fillSales(current); }
+  document.getElementById('listView').classList.add('hidden');
+  document.getElementById('detailView').classList.add('hidden');
+  document.getElementById('teamView').classList.add('hidden');
+  document.getElementById('waitronView').classList.add('hidden');
+  document.getElementById('salesSummaryView').classList.add('hidden');
+  document.getElementById('salesView').classList.remove('hidden');
+}
+function fillSales(r){
+  current=r; const s=r.sales||{};
+  document.getElementById('sDate').value=r.date||'';
+  document.getElementById('sOpening').value=r.cash_float||'';
+  document.getElementById('sTips').value=s.tips||'';
+  document.getElementById('sApprover').value=r.approver||'';
+  document.getElementById('sApproverComments').value=r.approver_comments||'';
+  const sel=document.getElementById('sPerson');
+  let names=WAITRON_NAMES.slice();
+  if(ME.role==='waitron' && ME.name && !names.includes(ME.name)) names.unshift(ME.name);
+  if(r.runner && !names.includes(r.runner)) names.unshift(r.runner);
+  sel.innerHTML='<option value=""></option>'+names.map(n=>'<option'+(n===r.runner?' selected':'')+'>'+esc(n)+'</option>').join('');
+  const db=document.getElementById('denomBody'); db.innerHTML='';
+  DENOMS.forEach(v=>{ const c=(s.denoms&&s.denoms[v])||''; const tr=document.createElement('tr'); tr.dataset.val=v;
+    tr.innerHTML='<td>'+v+'</td><td class="num"><input type="number" min="0" step="1" value="'+c+'" placeholder="0" oninput="recalcS()"></td><td class="num denomAmt">M0.00</td>'; db.appendChild(tr); });
+  const pb=document.getElementById('payBody'); pb.innerHTML=''; const payMap={}; (s.pay||[]).forEach(p=>payMap[p.type]=p);
+  SALES_PAY.forEach(t=>{ const p=payMap[t]||{}; const tr=document.createElement('tr'); tr.dataset.type=t;
+    if(t==='Cash'){ tr.innerHTML='<td>Cash</td><td class="num payCountedCell">M0.00</td><td class="num"><input class="payExpected" type="number" step="0.01" value="'+(p.expected??'')+'" placeholder="0.00" oninput="recalcS()"></td><td class="num payDiff">M0.00</td>'; }
+    else { tr.innerHTML='<td>'+esc(t)+'</td><td class="num"><input class="payCounted" type="number" step="0.01" value="'+(p.counted??'')+'" placeholder="0.00" oninput="recalcS()"></td><td class="num"><input class="payExpected" type="number" step="0.01" value="'+(p.expected??'')+'" placeholder="0.00" oninput="recalcS()"></td><td class="num payDiff">M0.00</td>'; }
+    pb.appendChild(tr); });
+  document.getElementById('sExplain').value=s.explanation||'';
+  document.getElementById('sSettle').value=s.settle||'';
+  document.getElementById('sExplainedAmt').value=s.explainedAmt||'';
+  renderShortRcpt();
+  renderSStatus(); applySRole(); recalcS();
+}
+function cashCounted(){ let sum=0; document.querySelectorAll('#denomBody tr').forEach(tr=>{ sum+=(parseFloat(tr.dataset.val)||0)*(parseFloat(tr.querySelector('input').value)||0); }); return sum; }
+function recalcS(){
+  document.querySelectorAll('#denomBody tr').forEach(tr=>{ const v=parseFloat(tr.dataset.val)||0; const c=parseFloat(tr.querySelector('input').value)||0; tr.querySelector('.denomAmt').textContent=M(v*c); });
+  const cc=cashCounted(); set('sCashCounted',M(cc));
+  let totalDiff=0;
+  document.querySelectorAll('#payBody tr').forEach(tr=>{
+    const type=tr.dataset.type;
+    const counted = type==='Cash' ? cc : (parseFloat((tr.querySelector('.payCounted')||{}).value)||0);
+    if(type==='Cash'){ const cell=tr.querySelector('.payCountedCell'); if(cell) cell.textContent=M(cc); }
+    const expected = parseFloat((tr.querySelector('.payExpected')||{}).value)||0;
+    const diff=counted-expected; totalDiff+=diff;
+    const d=tr.querySelector('.payDiff'); d.textContent=(diff>=0?'+ ':'– ')+M(Math.abs(diff));
+    d.className='num payDiff '+(Math.abs(diff)<0.005?'':(diff<0?'variance short':'variance ok'));
+  });
+  const td=document.getElementById('sTotalDiff'); td.textContent=(totalDiff>=0?'+ ':'– ')+M(Math.abs(totalDiff));
+  td.className='num variance '+(Math.abs(totalDiff)<0.005?'ok':(totalDiff<0?'short':'ok'));
+  const shortage = totalDiff<0 ? -totalDiff : 0;
+  const explained = parseFloat((document.getElementById('sExplainedAmt')||{}).value)||0;
+  const remaining = Math.max(0, shortage-explained);
+  const sh=document.getElementById('sShortage'); if(sh) sh.textContent=M(shortage);
+  const rem=document.getElementById('sRemaining'); if(rem) rem.textContent=M(remaining);
+}
+function gatherSales(){
+  current.type='sales';
+  current.date=document.getElementById('sDate').value;
+  current.runner=document.getElementById('sPerson').value;
+  current.cash_float=parseFloat(document.getElementById('sOpening').value)||0;
+  const denoms={}; document.querySelectorAll('#denomBody tr').forEach(tr=>{ const c=parseFloat(tr.querySelector('input').value)||0; if(c) denoms[tr.dataset.val]=c; });
+  const cc=cashCounted();
+  const pay=[...document.querySelectorAll('#payBody tr')].map(tr=>({ type:tr.dataset.type,
+    counted: tr.dataset.type==='Cash' ? cc : (parseFloat((tr.querySelector('.payCounted')||{}).value)||0),
+    expected: parseFloat((tr.querySelector('.payExpected')||{}).value)||0 }));
+  const prevRcpt=(current.sales&&current.sales.shortageReceipt)||null;
+  current.sales={ denoms, tips:parseFloat(document.getElementById('sTips').value)||0, pay,
+    explanation:document.getElementById('sExplain').value,
+    shortageReceipt:prevRcpt,
+    settle:document.getElementById('sSettle').value,
+    explainedAmt:parseFloat(document.getElementById('sExplainedAmt').value)||0 };
+  current.approver=document.getElementById('sApprover').value;
+  current.approver_comments=document.getElementById('sApproverComments').value;
+  return current;
+}
+function setSStatus(s){
+  if(!current)return;
+  if(s==='submitted' && !document.getElementById('sPerson').value){alert('Choose the employee first.');return;}
+  if(s==='approved'){current.approved_at=new Date().toISOString();}
+  current.status=s; renderSStatus(); applySRole(); saveSales();
+}
+function renderSStatus(){
+  const b=document.getElementById('sStatusBadge'); const labels={draft:'Draft',submitted:'Submitted',approved:'Approved',returned:'Sent back'};
+  b.textContent=labels[current.status]||current.status; b.className='badge '+current.status;
+  const stamp=document.getElementById('sApprovedStamp');
+  if(current.status==='approved'&&current.approved_at){stamp.classList.remove('hidden');stamp.textContent='✓ Approved '+new Date(current.approved_at).toLocaleString();}
+  else stamp.classList.add('hidden');
+}
+function applySRole(){
+  const role=ME.role, st=current?current.status:'draft';
+  const open=(st!=='approved');
+  // waitron enters COUNTED; approver enters EXPECTED+tips on review; manager (authoriser) can do EVERYTHING (enter-all shortcut)
+  const countedEdit = open && ((role==='waitron' && (st==='draft'||st==='returned')) || role==='authoriser');
+  const mgrEdit     = open && ((role==='approver' && st==='submitted') || role==='authoriser');
+  ['sDate','sPerson','sOpening'].forEach(id=>{ const e=document.getElementById(id); if(e) e.disabled=!countedEdit; });
+  document.querySelectorAll('#denomBody input').forEach(e=> e.disabled=!countedEdit);
+  document.querySelectorAll('#payBody .payCounted').forEach(e=> e.disabled=!countedEdit);
+  const tip=document.getElementById('sTips'); if(tip) tip.disabled=!mgrEdit;
+  document.querySelectorAll('#payBody .payExpected').forEach(e=> e.disabled=!mgrEdit);
+  ['sApprover','sApproverComments'].forEach(id=>{ const e=document.getElementById(id); if(e) e.disabled=!mgrEdit; });
+  const explainEdit = countedEdit || mgrEdit;   // waitron OR manager can explain a shortage
+  ['sExplain','sShortRcptFile'].forEach(id=>{ const e=document.getElementById(id); if(e) e.disabled=!explainEdit; });
+  ['sSettle','sExplainedAmt'].forEach(id=>{ const e=document.getElementById(id); if(e) e.disabled=!mgrEdit; });  // settlement is manager-only
+  show('sBtnSubmit', role==='waitron' && (st==='draft'||st==='returned'));
+  show('sBtnApprove', mgrEdit); show('sBtnReturn', mgrEdit);
+}
+async function saveSales(){ try{ const s=await Store.save(gatherSales()); current=s||current; alert('Saved'); }catch(e){ alert('Save failed: '+e.message); } }
+async function persistS(){ const s=await Store.save(gatherSales()); current=s||current; }
+async function ensureSavedS(){ if(!current.id){ await persistS(); } return current.id; }
+async function uploadS(folder,file){ if(!sb) throw new Error('Attachments need the live database.'); const id=await ensureSavedS(); const safe=file.name.replace(/[^\w.\-]+/g,'_'); const path=id+'/'+folder+'/'+Date.now()+'_'+safe; const {error}=await sb.storage.from('docs').upload(path,file,{contentType:file.type||undefined}); if(error)throw error; const {data}=sb.storage.from('docs').getPublicUrl(path); return {name:file.name,url:data.publicUrl}; }
+async function attachShortageReceipt(input){ if(!input.files||!input.files[0])return; document.getElementById('sShortRcptBox').textContent='Uploading…'; try{ current.sales=current.sales||{}; current.sales.shortageReceipt=await uploadS('sales',input.files[0]); await persistS(); }catch(e){ alert('Upload failed: '+e.message); } input.value=''; renderShortRcpt(); }
+function renderShortRcpt(){ const box=document.getElementById('sShortRcptBox'); if(!box)return; const f=current&&current.sales&&current.sales.shortageReceipt;
+  box.innerHTML=(f&&f.url)?'📎 <a href="'+f.url+'" target="_blank" rel="noopener">'+esc(f.name||'receipt')+'</a> <a href="#" class="no-print" style="color:var(--bad);text-decoration:none;" onclick="clearShortRcpt();return false;">✕</a>':'<span class="muted">No receipt attached.</span>'; }
+function clearShortRcpt(){ if(!confirm('Remove this receipt?'))return; current.sales=current.sales||{}; current.sales.shortageReceipt=null; persistS().then(renderShortRcpt); }
+
+/* ========================= DAILY SALES SUMMARY (roll-up) ========================= */
+let sumRecords=[], sumDayRec=null;
+function snum(id){ return parseFloat(document.getElementById(id).value)||0; }
+function openSalesSummary(){
+  ['listView','detailView','teamView','waitronView','salesView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  document.getElementById('salesSummaryView').classList.remove('hidden');
+  const d=document.getElementById('sumDate'); if(!d.value) d.value=new Date().toISOString().slice(0,10);
+  loadSummary();
+}
+async function loadSummary(){
+  const date=document.getElementById('sumDate').value;
+  document.getElementById('sumDateLabel').textContent=date||'—';
+  let rows=[]; try{ rows=await Store.list(); }catch(e){}
+  sumRecords=rows.filter(r=>r.type==='sales' && r.date===date);
+  sumDayRec=rows.find(r=>r.type==='salesday' && r.date===date)||null;
+  const ded=(sumDayRec&&sumDayRec.sales&&sumDayRec.sales.deductions)||{};
+  document.getElementById('dDeposit').value=ded.deposit||''; document.getElementById('dPetty').value=ded.petty||'';
+  document.getElementById('dCab').value=ded.cab||''; document.getElementById('dFuel').value=ded.fuel||'';
+  document.getElementById('dBread').value=ded.bread||''; document.getElementById('dSavings').value=ded.savings||'';
+  const owed={}; rows.filter(r=>r.type==='sales' && r.sales && r.sales.settle==='Owed — deduct from salary').forEach(r=>{ const s=r.sales; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const rem=Math.max(0,(diff<0?-diff:0)-(s.explainedAmt||0)); if(rem>0) owed[r.runner||'?']=(owed[r.runner||'?']||0)+rem; });
+  renderOwed(owed);
+  renderSummary();
+}
+function renderOwed(owed){
+  const el=document.getElementById('owedTable'); if(!el)return;
+  const keys=Object.keys(owed).filter(k=>owed[k]>0);
+  if(!keys.length){ el.innerHTML='<span class="muted">No outstanding shortages.</span>'; return; }
+  let tot=0; el.innerHTML='<table><thead><tr><th>Waitron</th><th class="num">Owed (M)</th></tr></thead><tbody>'
+    +keys.map(k=>{tot+=owed[k];return '<tr><td>'+esc(k)+'</td><td class="num rpt-neg">'+M(owed[k])+'</td></tr>';}).join('')
+    +'<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Total owed</td><td class="num">'+M(tot)+'</td></tr></tbody></table>';
+}
+function drawerTotals(r){
+  const s=r.sales||{}; const pay=s.pay||[]; let cash=0, byType={}, diff=0;
+  pay.forEach(p=>{ byType[p.type]=(byType[p.type]||0)+(p.counted||0); if(p.type==='Cash')cash=p.counted||0; diff+=((p.counted||0)-(p.expected||0)); });
+  return {cash, byType, diff, tips:s.tips||0, total:Object.values(byType).reduce((a,b)=>a+b,0)};
+}
+function renderSummary(){
+  const el=document.getElementById('sumDrawers');
+  if(!sumRecords.length){ el.innerHTML='<span class="muted">No cash-ups for this date yet.</span>'; recalcSummary(); return; }
+  const cols=SALES_PAY;
+  let head='<tr><th>Employee</th>'+cols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Difference</th><th>Status</th></tr>';
+  let body=''; const gt={}; let gtTotal=0, gtDiff=0;
+  sumRecords.forEach(r=>{ const t=drawerTotals(r);
+    body+='<tr><td>'+esc(r.runner||'—')+'</td>'+cols.map(c=>{ const v=t.byType[c]||0; gt[c]=(gt[c]||0)+v; return '<td class="num">'+M(v)+'</td>'; }).join('')
+      +'<td class="num">'+M(t.total)+'</td><td class="num variance '+(t.diff<0?'short':'ok')+'">'+(t.diff>=0?'+ ':'– ')+M(Math.abs(t.diff))+'</td><td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
+    gtTotal+=t.total; gtDiff+=t.diff; });
+  let foot='<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Grand total</td>'+cols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')+'<td class="num">'+M(gtTotal)+'</td><td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
+  el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>';
+  recalcSummary();
+}
+function recalcSummary(){
+  let totalCash=0, totalTips=0;
+  sumRecords.forEach(r=>{ const t=drawerTotals(r); totalCash+=t.cash; totalTips+=t.tips; });
+  const net=totalCash-totalTips;
+  const ded=['dDeposit','dPetty','dCab','dFuel','dBread','dSavings'].reduce((s,id)=>s+snum(id),0);
+  set('sumCash',M(totalCash)); set('sumTips',M(totalTips)); set('sumNet',M(net)); set('sumCIH',M(net-ded));
+}
+async function saveSummary(){
+  const date=document.getElementById('sumDate').value;
+  if(!date){alert('Pick a date first.');return;}
+  const rec = (sumDayRec&&sumDayRec.id)?{id:sumDayRec.id}:{};
+  rec.type='salesday'; rec.date=date; rec.status='approved';
+  rec.sales={deductions:{deposit:snum('dDeposit'),petty:snum('dPetty'),cab:snum('dCab'),fuel:snum('dFuel'),bread:snum('dBread'),savings:snum('dSavings')}};
+  try{ const s=await Store.save(rec); sumDayRec=s||sumDayRec; alert('Deductions saved'); }catch(e){ alert('Save failed: '+e.message); }
+}
+
+/* ========================= MONTHLY SHORTAGES ========================= */
+let shItems=[], shOwedMap={};
+function openShortages(){
+  ['listView','detailView','teamView','waitronView','salesView','salesSummaryView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  document.getElementById('shortagesView').classList.remove('hidden');
+  const m=document.getElementById('shMonth'); if(!m.value) m.value=new Date().toISOString().slice(0,7);
+  loadShortages();
+}
+async function loadShortages(){
+  const month=document.getElementById('shMonth').value;
+  document.getElementById('shMonthLabel').textContent=month||'—';
+  let rows=[]; try{ rows=await Store.list(); }catch(e){}
+  const recs=rows.filter(r=>r.type==='sales' && (r.date||'').slice(0,7)===month);
+  shItems=[]; shOwedMap={};
+  recs.forEach(r=>{ const s=r.sales||{}; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const shortage=diff<0?-diff:0;
+    if(shortage<=0) return;
+    const explained=s.explainedAmt||0; const remaining=Math.max(0,shortage-explained);
+    shItems.push({date:r.date,name:r.runner||'?',shortage,explained,remaining,settle:s.settle||''});
+    if(s.settle==='Owed — deduct from salary' && remaining>0) shOwedMap[r.runner||'?']=(shOwedMap[r.runner||'?']||0)+remaining;
+  });
+  shItems.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  renderShortages();
+}
+function renderShortages(){
+  const el=document.getElementById('shTable');
+  if(!shItems.length){ el.innerHTML='<span class="muted">No shortages this month. 🎉</span>'; }
+  else el.innerHTML='<table><thead><tr><th>Date</th><th>Waitron</th><th class="num">Short (M)</th><th class="num">Explained (M)</th><th class="num">Remaining (M)</th><th>Handling</th></tr></thead><tbody>'
+    + shItems.map(i=>'<tr><td>'+esc(i.date)+'</td><td>'+esc(i.name)+'</td><td class="num rpt-neg">'+M(i.shortage)+'</td><td class="num">'+M(i.explained)+'</td><td class="num">'+M(i.remaining)+'</td><td>'+esc(i.settle||'—')+'</td></tr>').join('')
+    + '</tbody></table>';
+  const oel=document.getElementById('shOwed'); const keys=Object.keys(shOwedMap).filter(k=>shOwedMap[k]>0);
+  if(!keys.length){ oel.innerHTML='<span class="muted">Nothing owed this month.</span>'; }
+  else { let tot=0; oel.innerHTML='<table><thead><tr><th>Waitron</th><th class="num">Owed (M)</th></tr></thead><tbody>'
+    + keys.map(k=>{tot+=shOwedMap[k];return '<tr><td>'+esc(k)+'</td><td class="num rpt-neg">'+M(shOwedMap[k])+'</td></tr>';}).join('')
+    + '<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Total owed</td><td class="num">'+M(tot)+'</td></tr></tbody></table>'; }
+}
+function reportShortages(){
+  const month=document.getElementById('shMonth').value||'';
+  let h=rptHead('Shortages — '+month,'Monthly staff shortages');
+  h+='<h3>Shortages</h3>'+rptTable(['Date','Waitron','Short (M)','Explained (M)','Remaining (M)','Handling'], shItems.map(i=>[esc(i.date),esc(i.name),M(i.shortage),M(i.explained),M(i.remaining),esc(i.settle||'—')]));
+  const keys=Object.keys(shOwedMap).filter(k=>shOwedMap[k]>0); let tot=0; keys.forEach(k=>tot+=shOwedMap[k]);
+  if(keys.length) h+='<h3>Owed per waitron</h3>'+rptTable(['Waitron','Owed (M)'], keys.map(k=>[esc(k),M(shOwedMap[k])]).concat([['Total',M(tot)]]));
+  return h;
+}
+
+/* ---------- Init ---------- */
+(async function init(){
+  const banner=document.getElementById('modeBanner');
+  if(sb){
+    banner.innerHTML='<div class="banner info">Connected to your live shared database.</div>';
+    const {data:{session}}=await sb.auth.getSession();
+    if(session) showApp(session); else showLogin();
+    sb.auth.onAuthStateChange((event,s)=>{
+      if(event==='PASSWORD_RECOVERY'){ promptNewPassword(); return; }
+      if(s) showApp(s); else showLogin();
+    });
+  } else {
+    banner.innerHTML='<div class="banner local">⚠ Test mode — saving to this device only. It goes live once the backend is connected.</div>';
+    document.getElementById('loginGate').classList.add('hidden');
+    refreshList(); applyRole();
+  }
+})();
+</script>
+</body>
+</html>
