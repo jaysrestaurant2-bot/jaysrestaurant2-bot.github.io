@@ -986,11 +986,7 @@ async function refreshList(){
       const dates=Object.keys(byDate).sort().reverse();
       const kind = listMode==='sales'?'cash-ups':(listMode==='waitron'?'petty-cash logs':'purchase orders');
       const picker='<div class="no-print" style="margin:0 0 14px;"><label style="display:block;font-weight:600;margin-bottom:6px;">📅 Pick a date</label><input type="date" id="datePick" style="width:auto;max-width:240px;" onchange="if(this.value)setDateFilter(this.value)"></div>';
-      wrap.innerHTML=picker+'<p class="hint" style="margin:0 0 10px;">…or tap a recent date below to open its '+kind+'.</p>'
-        + dates.map(dt=>{ const n=byDate[dt].length; let extra='';
-            if(listMode==='sales'){ let td=0; byDate[dt].forEach(r=>(r.sales&&r.sales.pay||[]).forEach(p=>td+=((p.counted||0)-(p.expected||0)))); extra=' · total diff <span class="'+(td<0?'rpt-neg':'')+'">'+(td>=0?'+ ':'– ')+M(Math.abs(td))+'</span>'; }
-            return '<div class="history-item" style="cursor:pointer;" onclick="setDateFilter(\''+esc(dt)+'\')"><div><b>📅 '+esc(dt)+'</b><div class="meta">'+n+' '+(n!==1?'records':'record')+extra+'</div></div><div><button class="btn ghost small">Open →</button></div></div>';
-          }).join('');
+      wrap.innerHTML=picker+'<p class="hint" style="margin:0 0 10px;">Choose a date above to view its records.</p>';
       return;
     }
     const pval = /^\d{4}-\d{2}-\d{2}$/.test(dateFilter)?dateFilter:'';
