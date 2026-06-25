@@ -551,7 +551,7 @@
     </div>
     <div class="card">
       <h2>Shortages — <span id="shMonthLabel">—</span></h2>
-      <p class="hint">Every drawer that came up short this month, with the explained amount, what remains, and how it was handled.</p>
+      <p class="hint">Grouped by waitron. Each person's short days are listed together — tap “Verify day →” to open that day's cash-up and check the receipt.</p>
       <div id="shTable" style="overflow-x:auto;"></div>
     </div>
     <div class="card">
@@ -1558,20 +1558,32 @@ async function loadShortages(){
 function renderShortages(){
   const el=document.getElementById('shTable');
   if(!shItems.length){ el.innerHTML='<span class="muted">No shortages this month. 🎉</span>'; }
-  else el.innerHTML='<table><thead><tr><th>Date</th><th>Waitron</th><th class="num">Short (M)</th><th class="num">Explained (M)</th><th class="num">Remaining (M)</th><th>Handling</th></tr></thead><tbody>'
-    + shItems.map(i=>'<tr><td>'+esc(i.date)+'</td><td>'+esc(i.name)+'</td><td class="num rpt-neg">'+M(i.shortage)+'</td><td class="num">'+M(i.explained)+'</td><td class="num">'+M(i.remaining)+'</td><td>'+esc(i.settle||'—')+'</td></tr>').join('')
-    + '</tbody></table>';
-  const oel=document.getElementById('shOwed'); const keys=Object.keys(shOwedMap).filter(k=>shOwedMap[k]>0);
+  else {
+    const byName={}; shItems.forEach(i=>{ (byName[i.name]=byName[i.name]||[]).push(i); });
+    const names=Object.keys(byName).sort((a,b)=>(shOwedMap[b]||0)-(shOwedMap[a]||0) || a.localeCompare(b));
+    let body='';
+    names.forEach(name=>{
+      const items=byName[name].slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      const owed=shOwedMap[name]||0;
+      const tag = owed>0 ? '<span class="rpt-neg">Outstanding balance '+M(owed)+'</span>' : '<span style="color:var(--ok,#137a4b);">No balance owed</span>';
+      body+='<tr style="background:#eef2f7;"><td colspan="6"><b>👤 '+esc(name)+'</b> &middot; '+tag+'</td></tr>';
+      body+=items.map(i=>'<tr><td>'+esc(i.date)+'</td><td class="num rpt-neg">'+M(i.shortage)+'</td><td class="num">'+M(i.explained)+'</td><td class="num">'+M(i.remaining)+'</td><td>'+esc(i.settle||'—')+'</td><td class="no-print"><button class="btn ghost small" onclick="verifyDay(\''+esc(i.date)+'\')">Verify day →</button></td></tr>').join('');
+    });
+    el.innerHTML='<table><thead><tr><th>Date</th><th class="num">Short (M)</th><th class="num">Explained (M)</th><th class="num">Remaining (M)</th><th>Handling</th><th class="no-print"></th></tr></thead><tbody>'+body+'</tbody></table>';
+  }
+  const oel=document.getElementById('shOwed'); const keys=Object.keys(shOwedMap).filter(k=>shOwedMap[k]>0).sort((a,b)=>shOwedMap[b]-shOwedMap[a]);
   if(!keys.length){ oel.innerHTML='<span class="muted">Nothing owed this month.</span>'; }
   else { let tot=0; oel.innerHTML='<table><thead><tr><th>Waitron</th><th class="num">Owed (M)</th></tr></thead><tbody>'
     + keys.map(k=>{tot+=shOwedMap[k];return '<tr><td>'+esc(k)+'</td><td class="num rpt-neg">'+M(shOwedMap[k])+'</td></tr>';}).join('')
     + '<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Total owed</td><td class="num">'+M(tot)+'</td></tr></tbody></table>'; }
 }
+function verifyDay(d){ listMode='sales'; dateFilter=d; showList(); }
 function reportShortages(){
   const month=document.getElementById('shMonth').value||'';
   let h=rptHead('Shortages — '+month,'Monthly staff shortages');
-  h+='<h3>Shortages</h3>'+rptTable(['Date','Waitron','Short (M)','Explained (M)','Remaining (M)','Handling'], shItems.map(i=>[esc(i.date),esc(i.name),M(i.shortage),M(i.explained),M(i.remaining),esc(i.settle||'—')]));
-  const keys=Object.keys(shOwedMap).filter(k=>shOwedMap[k]>0); let tot=0; keys.forEach(k=>tot+=shOwedMap[k]);
+  const sorted=shItems.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'') || (a.date||'').localeCompare(b.date||''));
+  h+='<h3>Shortages by waitron</h3>'+rptTable(['Waitron','Date','Short (M)','Explained (M)','Remaining (M)','Handling'], sorted.map(i=>[esc(i.name),esc(i.date),M(i.shortage),M(i.explained),M(i.remaining),esc(i.settle||'—')]));
+  const keys=Object.keys(shOwedMap).filter(k=>shOwedMap[k]>0).sort((a,b)=>shOwedMap[b]-shOwedMap[a]); let tot=0; keys.forEach(k=>tot+=shOwedMap[k]);
   if(keys.length) h+='<h3>Owed per waitron</h3>'+rptTable(['Waitron','Owed (M)'], keys.map(k=>[esc(k),M(shOwedMap[k])]).concat([['Total',M(tot)]]));
   return h;
 }
