@@ -1002,7 +1002,7 @@ async function refreshList(){
   try{
     let rows=await Store.list();
     rows=rows.filter(r=> (r.type||'po')===listMode);
-    if((listMode==='waitron'||listMode==='sales') && ME.role==='waitron') rows=rows.filter(r=>(r.runner||'')===ME.name);
+    if((listMode==='waitron'||listMode==='sales') && ME.role==='waitron'){ const meName=(ME.name||'').trim().toLowerCase(); rows=rows.filter(r=>(r.runner||'').trim().toLowerCase()===meName); }
     if(!rows.length){wrap.innerHTML='<p class="muted">Nothing here yet'+(ME.role==='authoriser'?' — click “+ New”.':'.')+'</p>';return;}
     const canDelete = ME.role==='authoriser';
     const inner=(r)=>{
@@ -1021,11 +1021,19 @@ async function refreshList(){
       }
     };
     if(!dateFilter){
-      const byDate={}; rows.forEach(r=>{ const d=r.date||'(no date)'; (byDate[d]=byDate[d]||[]).push(r); });
-      const dates=Object.keys(byDate).sort().reverse();
-      const kind = listMode==='sales'?'cash-ups':(listMode==='waitron'?'petty-cash logs':'purchase orders');
       const picker='<div class="no-print" style="margin:0 0 14px;"><label style="display:block;font-weight:600;margin-bottom:6px;">📅 Pick a date</label><input type="date" id="datePick" style="width:auto;max-width:240px;" onchange="if(this.value)setDateFilter(this.value)"></div>';
-      wrap.innerHTML=picker+'<p class="hint" style="margin:0 0 10px;">Choose a date above to view its records.</p>';
+      const isStaff=(ME.role==='waitron'||ME.role==='runner');
+      const attn = isStaff ? rows.filter(r=>r.status==='returned'||r.status==='draft') : rows.filter(r=>r.status==='submitted');
+      attn.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+      let attnHtml='';
+      if(attn.length){
+        const label=isStaff?'Needs your attention — sent back or unfinished':'Waiting for your review';
+        attnHtml='<div style="border:2px solid #b45309;background:rgba(180,83,9,.06);border-radius:10px;margin:0 0 14px;padding:10px 14px;">'
+          +'<b style="color:#b45309;">⚠ '+esc(label)+' ('+attn.length+')</b>'
+          + attn.map(r=>'<div class="history-item">'+inner(r)+'</div>').join('')
+          +'</div>';
+      }
+      wrap.innerHTML=attnHtml+picker+'<p class="hint" style="margin:0 0 10px;">Choose a date above to view its records.</p>';
       return;
     }
     const pval = /^\d{4}-\d{2}-\d{2}$/.test(dateFilter)?dateFilter:'';
