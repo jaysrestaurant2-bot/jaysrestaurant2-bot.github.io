@@ -224,7 +224,8 @@
         <div><label>Date</label><input type="date" id="date"></div>
         <div><label>Authorised by</label><input id="authoriser" placeholder="name"></div>
         <div><label>PO value / budget (M)</label><input type="number" step="0.01" id="poBudget" placeholder="0.00" oninput="recalc()"></div>
-        <div><label>Card limit allowed (M)</label><input type="number" step="0.01" id="cardLimit" placeholder="0.00" oninput="recalc()"></div>
+        <div><label>Post Bank …5670 limit (M)</label><input type="number" step="0.01" id="cardLimitPost" placeholder="0.00" oninput="recalc()"></div>
+        <div><label>Tyme Bank …6736 limit (M)</label><input type="number" step="0.01" id="cardLimitTyme" placeholder="0.00" oninput="recalc()"></div>
         <div style="grid-column:span 2;"><label>Notes to runner</label><input id="authNotes" placeholder="optional"></div>
       </div>
       <div style="margin-top:14px;">
@@ -298,7 +299,8 @@
       </div>
       <div style="margin-top:12px;font-size:14px;">
         <div>Stock vs PO budget: <span id="budgetCheck" class="muted">—</span></div>
-        <div>Non-cash spend vs card limit: <span id="cardCheck" class="muted">—</span></div>
+        <div>Post Bank …5670 spend vs limit: <span id="postCheck" class="muted">—</span></div>
+        <div>Tyme Bank …6736 spend vs limit: <span id="tymeCheck" class="muted">—</span></div>
       </div>
     </div>
 
@@ -438,6 +440,7 @@
         <div><label>Employee (waitron)</label><select id="sPerson" onchange="recalcS()"></select></div>
         <div><label>Opening float (M)</label><input type="number" step="0.01" id="sOpening" placeholder="0.00" oninput="recalcS()"></div>
         <div><label>Tips (M) — manager</label><input type="number" step="0.01" id="sTips" placeholder="0.00" oninput="recalcS()"></div>
+        <div><label>Net cash (cash − tips)</label><div class="amt" id="sNetCash" style="padding:10px 0;font-weight:700;">M0.00</div></div>
       </div>
 
       <h2 style="margin-top:18px;font-size:15px;">1. Count your cash</h2>
@@ -632,7 +635,7 @@ const Store = {
 
 function blankRun(){
   return {id:null, po_number:'', date:new Date().toISOString().slice(0,10), status:'draft',
-    authoriser:'', cash_float:0, card_limit:0, po_budget:0, auth_notes:'',
+    authoriser:'', cash_float:0, card_limit:0, card_limit_post:0, card_limit_tyme:0, po_budget:0, auth_notes:'',
     runner:'', purchases:[], trips:[], actual_cash:0,
     approver:'', approver_comments:'', approved_at:null,
     po_doc:null, receipts:[], floats:[]};
@@ -725,10 +728,14 @@ function recalc(){
 
   const grand=cash+card+trip;
   set('tCash',M(cash)); set('tCard',M(card)); set('tTrip',M(trip)); set('tGrand',M(grand));
-  const cardLimit=parseFloat(document.getElementById('cardLimit').value)||0;
   const budget=parseFloat(document.getElementById('poBudget').value)||0;
+  const limPost=parseFloat((document.getElementById('cardLimitPost')||{}).value)||0;
+  const limTyme=parseFloat((document.getElementById('cardLimitTyme')||{}).value)||0;
+  const postSpend=methodTotals['Post bank card …5670']||0;
+  const tymeSpend=methodTotals['Tyme Bank Card …6736']||0;
   flag('budgetCheck', budget>0, cash+card, budget, 'within budget', 'over budget');
-  flag('cardCheck', cardLimit>0, card, cardLimit, 'within limit', 'over card limit');
+  flag('postCheck', limPost>0, postSpend, limPost, 'within limit', 'over limit');
+  flag('tymeCheck', limTyme>0, tymeSpend, limTyme, 'within limit', 'over limit');
 
   set('iCash',M(cash)); set('iCard',M(card)); set('iTrip',M(trip)); set('iOwed',M(trip));
   set('invPo',document.getElementById('po').value||'—');
@@ -872,7 +879,8 @@ function fill(r){
   document.getElementById('date').value=r.date||'';
   document.getElementById('authoriser').value=r.authoriser||'';
   document.getElementById('poBudget').value=r.po_budget||'';
-  document.getElementById('cardLimit').value=r.card_limit||'';
+  document.getElementById('cardLimitPost').value=r.card_limit_post||'';
+  document.getElementById('cardLimitTyme').value=r.card_limit_tyme||'';
   document.getElementById('authNotes').value=r.auth_notes||'';
   document.getElementById('approver').value=r.approver||'';
   document.getElementById('approverComments').value=r.approver_comments||'';
@@ -892,7 +900,8 @@ function gather(){
   current.date=document.getElementById('date').value;
   current.authoriser=document.getElementById('authoriser').value;
   current.po_budget=parseFloat(document.getElementById('poBudget').value)||0;
-  current.card_limit=parseFloat(document.getElementById('cardLimit').value)||0;
+  current.card_limit_post=parseFloat((document.getElementById('cardLimitPost')||{}).value)||0;
+  current.card_limit_tyme=parseFloat((document.getElementById('cardLimitTyme')||{}).value)||0;
   current.auth_notes=document.getElementById('authNotes').value;
   current.approver=document.getElementById('approver').value;
   current.approver_comments=document.getElementById('approverComments').value;
@@ -925,13 +934,43 @@ function gather(){
     runner:(tr.querySelector('.lineRunner')||{}).value||'' }));
   return current;
 }
+/* Merge this editor's save with the freshest copy in the database, so two people
+   working on the same sheet only overwrite the fields they own (prevents lost data,
+   e.g. a waitron re-saving and wiping the manager's tips). Authoriser owns everything. */
+async function mergeLatest(editor){
+  try{
+    if(!editor || !editor.id || !sb || (ME&&ME.role==='authoriser')) return editor;
+    const {data:l,error}=await sb.from('runs').select('*').eq('id',editor.id).single();
+    if(error||!l) return editor;
+    if(editor.type==='sales'){
+      editor.sales=editor.sales||{}; const ls=l.sales||{};
+      const lm={}; (ls.pay||[]).forEach(p=>lm[p.type]=p);
+      if(ME.role==='waitron'){
+        editor.sales.tips=ls.tips; editor.sales.settle=ls.settle; editor.sales.explainedAmt=ls.explainedAmt;
+        editor.approver=l.approver; editor.approver_comments=l.approver_comments; editor.approved_at=l.approved_at;
+        (editor.sales.pay||[]).forEach(p=>{ if(lm[p.type]) p.expected=lm[p.type].expected; });
+      } else if(ME.role==='approver'){
+        editor.sales.denoms=ls.denoms; editor.sales.explanation=ls.explanation; editor.sales.shortageReceipt=ls.shortageReceipt;
+        editor.runner=l.runner; editor.date=l.date; editor.cash_float=l.cash_float;
+        (editor.sales.pay||[]).forEach(p=>{ if(lm[p.type]) p.counted=lm[p.type].counted; });
+      }
+    } else {
+      if(ME.role==='runner'){
+        ['po_number','po_budget','card_limit','card_limit_post','card_limit_tyme','auth_notes','authoriser','approver','approver_comments'].forEach(k=> editor[k]=l[k]);
+      } else if(ME.role==='approver'){
+        ['purchases','trips','floats','actual_cash','runner','cash_float','po_budget','card_limit_post','card_limit_tyme','auth_notes','authoriser'].forEach(k=> editor[k]=l[k]);
+      }
+    }
+  }catch(e){}
+  return editor;
+}
 async function saveRun(){
-  try{ const saved=await Store.save(gather()); current=saved||current; alert('Saved'); }
+  try{ const g=await mergeLatest(gather()); const saved=await Store.save(g); current=saved||current; alert('Saved'); }
   catch(e){ alert('Save failed: '+e.message); }
 }
 
 /* ---------- Attachments (PO doc + receipts) ---------- */
-async function persist(){ const saved=await Store.save(gather()); current=saved||current; }
+async function persist(){ const g=await mergeLatest(gather()); const saved=await Store.save(g); current=saved||current; }
 async function ensureSaved(){ if(!current.id){ await persist(); } return current.id; }
 async function uploadTo(folder, file){
   if(!sb) throw new Error('Attachments need the live database.');
@@ -1028,7 +1067,7 @@ async function removeMember(email){
 function exportCSV(){
   const d=gather();
   let rows=[['Jays Runner PO Log'],['PO',d.po_number],['Date',d.date],['Status',d.status],
-    ['Authorised by',d.authoriser],['Cash float',d.cash_float],['Card limit',d.card_limit],['PO budget',d.po_budget],[''],
+    ['Authorised by',d.authoriser],['Cash float',d.cash_float],['Post Bank …5670 limit',M(d.card_limit_post||0)],['Tyme …6736 limit',M(d.card_limit_tyme||0)],['PO budget',d.po_budget],[''],
     ['PURCHASES'],['Shop','Items','Payment method','Amount (M)','Receipt link']];
   d.purchases.forEach(b=>rows.push([b.shop,b.items,b.method||'',(b.amount!=null?b.amount:((b.cash||0)+(b.card||0))), b.receiptFile?b.receiptFile.url:'(none)']));
   rows.push([''],['TRIPS'],['Destination','Fee (M)','Paid in cash']);
@@ -1053,7 +1092,7 @@ function reportPO(){
   const cash=(d.purchases||[]).filter(p=>(p.method||'')==='Cash').reduce((s,p)=>s+(p.amount||0),0);
   const total=(d.purchases||[]).reduce((s,p)=>s+(p.amount||0),0); const trip=(d.trips||[]).reduce((s,t)=>s+(t.fee||0),0);
   let h=rptHead('Purchase Order '+(d.po_number||''),'Runner Purchase Order');
-  h+='<div class="rpt-meta">'+kv('Date',d.date)+kv('Authorised by',d.authoriser)+kv('Status',d.status)+kv('Budget',M(d.po_budget))+kv('Card limit',M(d.card_limit))+'</div>';
+  h+='<div class="rpt-meta">'+kv('Date',d.date)+kv('Authorised by',d.authoriser)+kv('Status',d.status)+kv('Budget',M(d.po_budget))+kv('Post …5670 limit',M(d.card_limit_post||0))+kv('Tyme …6736 limit',M(d.card_limit_tyme||0))+'</div>';
   if((d.floats||[]).length) h+='<h3>Cash floats</h3>'+rptTable(['Runner','Float (M)'],d.floats.map(f=>[esc(f.runner),M(f.float)]));
   h+='<h3>Purchases</h3>'+rptTable(['Shop','Items','Method','Amount (M)','Runner'],(d.purchases||[]).map(p=>[esc(p.shop),esc(p.items),esc(p.method||''),M(p.amount||0),esc(p.runner||'')]));
   if((d.trips||[]).length) h+='<h3>Trip charges</h3>'+rptTable(['Destination','Fee (M)','Paid cash','Runner'],d.trips.map(t=>[esc(t.dest),M(t.fee),t.paidCash?'Yes':'No',esc(t.runner||'')]));
@@ -1405,6 +1444,8 @@ function recalcS(){
   const remaining = Math.max(0, shortage-explained);
   const sh=document.getElementById('sShortage'); if(sh) sh.textContent=M(shortage);
   const rem=document.getElementById('sRemaining'); if(rem) rem.textContent=M(remaining);
+  const tips=parseFloat((document.getElementById('sTips')||{}).value)||0;
+  const ncEl=document.getElementById('sNetCash'); if(ncEl) ncEl.textContent=M(cc-tips);
 }
 function gatherSales(){
   current.type='sales';
@@ -1457,8 +1498,8 @@ function applySRole(){
   show('sBtnSubmit', role==='waitron' && (st==='draft'||st==='returned'));
   show('sBtnApprove', mgrEdit); show('sBtnReturn', mgrEdit);
 }
-async function saveSales(){ try{ const s=await Store.save(gatherSales()); current=s||current; alert('Saved'); }catch(e){ alert('Save failed: '+e.message); } }
-async function persistS(){ const s=await Store.save(gatherSales()); current=s||current; }
+async function saveSales(){ try{ const g=await mergeLatest(gatherSales()); const s=await Store.save(g); current=s||current; alert('Saved'); }catch(e){ alert('Save failed: '+e.message); } }
+async function persistS(){ const g=await mergeLatest(gatherSales()); const s=await Store.save(g); current=s||current; }
 async function ensureSavedS(){ if(!current.id){ await persistS(); } return current.id; }
 async function uploadS(folder,file){ if(!sb) throw new Error('Attachments need the live database.'); const id=await ensureSavedS(); const safe=file.name.replace(/[^\w.\-]+/g,'_'); const path=id+'/'+folder+'/'+Date.now()+'_'+safe; const {error}=await sb.storage.from('docs').upload(path,file,{contentType:file.type||undefined}); if(error)throw error; const {data}=sb.storage.from('docs').getPublicUrl(path); return {name:file.name,url:data.publicUrl}; }
 async function attachShortageReceipt(input){ if(!input.files||!input.files[0])return; document.getElementById('sShortRcptBox').textContent='Uploading…'; try{ current.sales=current.sales||{}; current.sales.shortageReceipt=await uploadS('sales',input.files[0]); await persistS(); }catch(e){ alert('Upload failed: '+e.message); } input.value=''; renderShortRcpt(); }
@@ -1506,13 +1547,13 @@ function renderSummary(){
   const el=document.getElementById('sumDrawers');
   if(!sumRecords.length){ el.innerHTML='<span class="muted">No cash-ups for this date yet.</span>'; recalcSummary(); return; }
   const cols=SALES_PAY;
-  let head='<tr><th>Employee</th>'+cols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Difference</th><th>Status</th></tr>';
-  let body=''; const gt={}; let gtTotal=0, gtDiff=0;
-  sumRecords.forEach(r=>{ const t=drawerTotals(r);
+  let head='<tr><th>Employee</th>'+cols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Tips</th><th class="num">Net cash</th><th class="num">Difference</th><th>Status</th></tr>';
+  let body=''; const gt={}; let gtTotal=0, gtDiff=0, gtTips=0, gtNet=0;
+  sumRecords.forEach(r=>{ const t=drawerTotals(r); const net=t.cash-t.tips;
     body+='<tr><td>'+esc(r.runner||'—')+'</td>'+cols.map(c=>{ const v=t.byType[c]||0; gt[c]=(gt[c]||0)+v; return '<td class="num">'+M(v)+'</td>'; }).join('')
-      +'<td class="num">'+M(t.total)+'</td><td class="num variance '+(t.diff<0?'short':'ok')+'">'+(t.diff>=0?'+ ':'– ')+M(Math.abs(t.diff))+'</td><td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
-    gtTotal+=t.total; gtDiff+=t.diff; });
-  let foot='<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Grand total</td>'+cols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')+'<td class="num">'+M(gtTotal)+'</td><td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
+      +'<td class="num">'+M(t.total)+'</td><td class="num">'+M(t.tips)+'</td><td class="num"><b>'+M(net)+'</b></td><td class="num variance '+(t.diff<0?'short':'ok')+'">'+(t.diff>=0?'+ ':'– ')+M(Math.abs(t.diff))+'</td><td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
+    gtTotal+=t.total; gtDiff+=t.diff; gtTips+=t.tips; gtNet+=net; });
+  let foot='<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Grand total</td>'+cols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')+'<td class="num">'+M(gtTotal)+'</td><td class="num">'+M(gtTips)+'</td><td class="num">'+M(gtNet)+'</td><td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
   el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>';
   recalcSummary();
 }
@@ -1561,15 +1602,27 @@ function renderShortages(){
   else {
     const byName={}; shItems.forEach(i=>{ (byName[i.name]=byName[i.name]||[]).push(i); });
     const names=Object.keys(byName).sort((a,b)=>(shOwedMap[b]||0)-(shOwedMap[a]||0) || a.localeCompare(b));
-    let body='';
-    names.forEach(name=>{
+    el.innerHTML = names.map(name=>{
       const items=byName[name].slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-      const owed=shOwedMap[name]||0;
-      const tag = owed>0 ? '<span class="rpt-neg">Outstanding balance '+M(owed)+'</span>' : '<span style="color:var(--ok,#137a4b);">No balance owed</span>';
-      body+='<tr style="background:#eef2f7;"><td colspan="6"><b>👤 '+esc(name)+'</b> &middot; '+tag+'</td></tr>';
-      body+=items.map(i=>'<tr><td>'+esc(i.date)+'</td><td class="num rpt-neg">'+M(i.shortage)+'</td><td class="num">'+M(i.explained)+'</td><td class="num">'+M(i.remaining)+'</td><td>'+esc(i.settle||'—')+'</td><td class="no-print"><button class="btn ghost small" onclick="verifyDay(\''+esc(i.date)+'\')">Verify day →</button></td></tr>').join('');
-    });
-    el.innerHTML='<table><thead><tr><th>Date</th><th class="num">Short (M)</th><th class="num">Explained (M)</th><th class="num">Remaining (M)</th><th>Handling</th><th class="no-print"></th></tr></thead><tbody>'+body+'</tbody></table>';
+      let tShort=0,tExp=0,tPaid=0,tOwed=0,tPend=0;
+      const rows=items.map(i=>{
+        const paid=(i.settle==='Paid immediately')?i.remaining:0;
+        const owed=(i.settle==='Owed — deduct from salary')?i.remaining:0;
+        const pend=(i.remaining>0 && !paid && !owed)?i.remaining:0;
+        tShort+=i.shortage; tExp+=i.explained; tPaid+=paid; tOwed+=owed; tPend+=pend;
+        const owedCell = owed>0 ? '<span class="rpt-neg"><b>'+M(owed)+'</b></span>' : (pend>0 ? '<span style="color:#b45309;">'+M(pend)+' ⏳ to review</span>' : '—');
+        return '<tr><td>'+esc(i.date)+'</td><td class="num rpt-neg">'+M(i.shortage)+'</td><td class="num">'+M(i.explained)+'</td><td class="num">'+M(paid)+'</td><td class="num">'+owedCell+'</td><td class="no-print"><button class="btn ghost small" onclick="verifyDay(\''+esc(i.date)+'\')">Verify day →</button></td></tr>';
+      }).join('');
+      let badge;
+      if(tOwed>0) badge='<span class="flag over" style="font-size:14px;">Still owes '+M(tOwed)+'</span>'+(tPend>0?' <span style="color:#b45309;font-size:12px;">+ '+M(tPend)+' to review</span>':'');
+      else if(tPend>0) badge='<span style="color:#b45309;font-weight:700;">'+M(tPend)+' awaiting decision</span>';
+      else badge='<span class="flag ok" style="font-size:14px;">All settled ✓</span>';
+      const foot='<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Month total</td><td class="num rpt-neg">'+M(tShort)+'</td><td class="num">'+M(tExp)+'</td><td class="num">'+M(tPaid)+'</td><td class="num rpt-neg">'+M(tOwed)+'</td><td class="no-print"></td></tr>';
+      return '<div style="border:1px solid #d8dee6;border-radius:10px;padding:12px 14px;margin:0 0 16px;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;"><b style="font-size:17px;">👤 '+esc(name)+'</b>'+badge+'</div>'
+        +'<table><thead><tr><th>Date</th><th class="num">Short</th><th class="num">Explained</th><th class="num">Paid</th><th class="num">Still owed</th><th class="no-print"></th></tr></thead><tbody>'+rows+foot+'</tbody></table>'
+        +'</div>';
+    }).join('');
   }
   const oel=document.getElementById('shOwed'); const keys=Object.keys(shOwedMap).filter(k=>shOwedMap[k]>0).sort((a,b)=>shOwedMap[b]-shOwedMap[a]);
   if(!keys.length){ oel.innerHTML='<span class="muted">Nothing owed this month.</span>'; }
@@ -1582,7 +1635,10 @@ function reportShortages(){
   const month=document.getElementById('shMonth').value||'';
   let h=rptHead('Shortages — '+month,'Monthly staff shortages');
   const sorted=shItems.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'') || (a.date||'').localeCompare(b.date||''));
-  h+='<h3>Shortages by waitron</h3>'+rptTable(['Waitron','Date','Short (M)','Explained (M)','Remaining (M)','Handling'], sorted.map(i=>[esc(i.name),esc(i.date),M(i.shortage),M(i.explained),M(i.remaining),esc(i.settle||'—')]));
+  h+='<h3>Shortage statements by waitron</h3>'+rptTable(['Waitron','Date','Short (M)','Explained (M)','Paid (M)','Still owed (M)'], sorted.map(i=>{
+    const paid=(i.settle==='Paid immediately')?i.remaining:0; const owed=(i.settle==='Owed — deduct from salary')?i.remaining:0;
+    return [esc(i.name),esc(i.date),M(i.shortage),M(i.explained),M(paid),M(owed)];
+  }));
   const keys=Object.keys(shOwedMap).filter(k=>shOwedMap[k]>0).sort((a,b)=>shOwedMap[b]-shOwedMap[a]); let tot=0; keys.forEach(k=>tot+=shOwedMap[k]);
   if(keys.length) h+='<h3>Owed per waitron</h3>'+rptTable(['Waitron','Owed (M)'], keys.map(k=>[esc(k),M(shOwedMap[k])]).concat([['Total',M(tot)]]));
   return h;
