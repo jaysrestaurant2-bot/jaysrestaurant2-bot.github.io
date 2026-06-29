@@ -450,6 +450,10 @@
         <tfoot><tr><th>Cash counted</th><th></th><th class="num" id="sCashCounted">M0.00</th></tr></tfoot>
       </table>
       </div>
+      <div class="recon" style="max-width:480px;margin-top:8px;">
+        <div class="lbl">Opening float</div><div class="amt" id="sFloatEcho">M0.00</div>
+        <div class="lbl total">Total cash (float + counted)</div><div class="amt total" id="sTotalCash">M0.00</div>
+      </div>
 
       <h2 style="margin-top:18px;font-size:15px;">2. Counted vs POS</h2>
       <p class="hint">The <b>waitron</b> fills in <b>Counted</b> (what they actually have). The <b>manager/accountant</b> fills in <b>Expected/POS</b> and <b>Tips</b> at review time. The Difference flags any shortfall in red.</p>
@@ -459,7 +463,6 @@
         <tfoot><tr><th>Total difference (over / short)</th><th></th><th></th><th class="num variance" id="sTotalDiff">M0.00</th></tr></tfoot>
       </table>
       </div>
-      <p class="hint" id="sFloatNote" style="margin-top:6px;color:var(--good);"></p>
 
       <h2 style="margin-top:18px;font-size:15px;">3. If short — explain</h2>
       <div>
@@ -1012,7 +1015,7 @@ async function refreshList(){
         const spent=(r.purchases||[]).reduce((s,b)=>s+(b.amount||0),0);
         return '<div><b>'+esc(r.runner||'(no waitron)')+'</b> &middot; '+esc(r.date||'')+' <span class="badge '+r.status+'">'+r.status+'</span><div class="meta">Float '+M(r.cash_float||0)+' · Spent '+M(spent)+' · Returned '+M(r.actual_cash||0)+'</div></div><div><button class="btn ghost small" onclick="openWaitron(\''+r.id+'\')">Open</button> '+delBtn+'</div>';
       } else if(r.type==='sales'){
-        const pay=(r.sales&&r.sales.pay)||[]; const diff=pay.reduce((s,p)=>s+((p.counted||0)-(p.expected||0)),0) - (r.cash_float||0);
+        const pay=(r.sales&&r.sales.pay)||[]; const diff=pay.reduce((s,p)=>s+((p.counted||0)-(p.expected||0)),0);
         const settle=(r.sales&&r.sales.settle)?' · <span class="muted">'+esc(r.sales.settle)+'</span>':'';
         return '<div><b>'+esc(r.runner||'(no employee)')+'</b> <span class="badge '+r.status+'">'+r.status+'</span><div class="meta">Difference: <span class="variance '+(diff<0?'short':'ok')+'">'+(diff>=0?'+ ':'– ')+M(Math.abs(diff))+'</span>'+settle+'</div></div><div><button class="btn ghost small" onclick="openSales(\''+r.id+'\')">Open</button> '+delBtn+'</div>';
       } else {
@@ -1123,12 +1126,12 @@ function reportSales(){
   h+='<div class="rpt-meta">'+kv('Date',d.date)+kv('Employee',d.runner)+kv('Opening float',M(d.cash_float))+kv('Status',d.status)+'</div>';
   const dr=DENOMS.filter(v=>s.denoms&&s.denoms[v]).map(v=>[M(v),s.denoms[v],M(v*s.denoms[v])]);
   if(dr.length) h+='<h3>Cash count</h3>'+rptTable(['Note (M)','No. notes','Amount (M)'],dr);
-  let td=0; const pr=(s.pay||[]).map(p=>{ const exp=(p.expected||0)+(p.type==='Cash'?(d.cash_float||0):0); const diff=(p.counted||0)-exp; td+=diff; return [esc(p.type),M(p.counted||0),M(exp),'<span class="'+(diff<0?'rpt-neg':'rpt-pos')+'">'+M(diff)+'</span>']; });
+  let td=0; const pr=(s.pay||[]).map(p=>{ const diff=(p.counted||0)-(p.expected||0); td+=diff; return [esc(p.type),M(p.counted||0),M(p.expected||0),'<span class="'+(diff<0?'rpt-neg':'rpt-pos')+'">'+M(diff)+'</span>']; });
   h+='<h3>Counted vs POS</h3>'+rptTable(['Payment type','Counted (M)','Expected (M)','Difference'],pr);
-  if(d.cash_float) h+='<div style="font-size:11px;color:#555;">Cash expected includes the opening float of '+M(d.cash_float)+'.</div>';
+  h+='<div class="rpt-tot">Opening float '+M(d.cash_float||0)+' + cash counted '+M((s.pay||[]).filter(p=>p.type==='Cash').reduce((a,p)=>a+(p.counted||0),0))+' = Total cash '+M((d.cash_float||0)+(s.pay||[]).filter(p=>p.type==='Cash').reduce((a,p)=>a+(p.counted||0),0))+'</div>';
   h+='<div class="rpt-tot">Tips: '+M(s.tips||0)+' &nbsp;&middot;&nbsp; Total difference: <span class="'+(td<0?'rpt-neg':'rpt-pos')+'">'+M(td)+'</span></div>';
   if(s.explanation) h+='<h3>Shortage explanation</h3><div style="font-size:12px;">'+esc(s.explanation)+(s.shortageReceipt&&s.shortageReceipt.url?' &nbsp;(receipt attached)':'')+'</div>';
-  if(s.explainedAmt||s.settle){ const dff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0) - (d.cash_float||0); const shg=dff<0?-dff:0; const rm=Math.max(0,shg-(s.explainedAmt||0));
+  if(s.explainedAmt||s.settle){ const dff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const shg=dff<0?-dff:0; const rm=Math.max(0,shg-(s.explainedAmt||0));
     h+='<div class="rpt-tot">Total short: '+M(shg)+' &nbsp;&middot;&nbsp; Explained: '+M(s.explainedAmt||0)+' &nbsp;&middot;&nbsp; Remaining: '+M(rm)+(s.settle?(' &middot; '+esc(s.settle)):'')+'</div>'; }
   h+=rptSign(d.runner,d.approver,d.approved_at); return h;
 }
@@ -1437,14 +1440,12 @@ function cashCounted(){ let sum=0; document.querySelectorAll('#denomBody tr').fo
 function recalcS(){
   document.querySelectorAll('#denomBody tr').forEach(tr=>{ const v=parseFloat(tr.dataset.val)||0; const c=parseFloat(tr.querySelector('input').value)||0; tr.querySelector('.denomAmt').textContent=M(v*c); });
   const cc=cashCounted(); set('sCashCounted',M(cc));
-  const floatV=parseFloat((document.getElementById('sOpening')||{}).value)||0;
   let totalDiff=0;
   document.querySelectorAll('#payBody tr').forEach(tr=>{
     const type=tr.dataset.type;
     const counted = type==='Cash' ? cc : (parseFloat((tr.querySelector('.payCounted')||{}).value)||0);
     if(type==='Cash'){ const cell=tr.querySelector('.payCountedCell'); if(cell) cell.textContent=M(cc); }
-    let expected = parseFloat((tr.querySelector('.payExpected')||{}).value)||0;
-    if(type==='Cash') expected += floatV;
+    const expected = parseFloat((tr.querySelector('.payExpected')||{}).value)||0;
     const diff=counted-expected; totalDiff+=diff;
     const d=tr.querySelector('.payDiff'); d.textContent=(diff>=0?'+ ':'– ')+M(Math.abs(diff));
     d.className='num payDiff '+(Math.abs(diff)<0.005?'':(diff<0?'variance short':'variance ok'));
@@ -1457,8 +1458,10 @@ function recalcS(){
   const sh=document.getElementById('sShortage'); if(sh) sh.textContent=M(shortage);
   const rem=document.getElementById('sRemaining'); if(rem) rem.textContent=M(remaining);
   const tips=parseFloat((document.getElementById('sTips')||{}).value)||0;
+  const floatV=parseFloat((document.getElementById('sOpening')||{}).value)||0;
   const ncEl=document.getElementById('sNetCash'); if(ncEl) ncEl.textContent=M(cc-tips);
-  const fn=document.getElementById('sFloatNote'); if(fn) fn.textContent = floatV>0 ? ('Expected cash includes the opening float of '+M(floatV)+' — your starting change is not counted as a shortage.') : '';
+  const feEl=document.getElementById('sFloatEcho'); if(feEl) feEl.textContent=M(floatV);
+  const tcEl=document.getElementById('sTotalCash'); if(tcEl) tcEl.textContent=M(floatV+cc);
 }
 function gatherSales(){
   current.type='sales';
@@ -1539,7 +1542,7 @@ async function loadSummary(){
   document.getElementById('dDeposit').value=ded.deposit||''; document.getElementById('dPetty').value=ded.petty||'';
   document.getElementById('dCab').value=ded.cab||''; document.getElementById('dFuel').value=ded.fuel||'';
   document.getElementById('dBread').value=ded.bread||''; document.getElementById('dSavings').value=ded.savings||'';
-  const owed={}; rows.filter(r=>r.type==='sales' && r.sales && r.sales.settle==='Owed — deduct from salary').forEach(r=>{ const s=r.sales; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0) - (r.cash_float||0); const rem=Math.max(0,(diff<0?-diff:0)-(s.explainedAmt||0)); if(rem>0) owed[r.runner||'?']=(owed[r.runner||'?']||0)+rem; });
+  const owed={}; rows.filter(r=>r.type==='sales' && r.sales && r.sales.settle==='Owed — deduct from salary').forEach(r=>{ const s=r.sales; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const rem=Math.max(0,(diff<0?-diff:0)-(s.explainedAmt||0)); if(rem>0) owed[r.runner||'?']=(owed[r.runner||'?']||0)+rem; });
   renderOwed(owed);
   renderSummary();
 }
@@ -1554,7 +1557,7 @@ function renderOwed(owed){
 function drawerTotals(r){
   const s=r.sales||{}; const pay=s.pay||[]; let cash=0, byType={}, diff=0;
   pay.forEach(p=>{ byType[p.type]=(byType[p.type]||0)+(p.counted||0); if(p.type==='Cash')cash=p.counted||0; diff+=((p.counted||0)-(p.expected||0)); });
-  return {cash, byType, diff:diff-(r.cash_float||0), tips:s.tips||0, total:Object.values(byType).reduce((a,b)=>a+b,0)};
+  return {cash, byType, diff, tips:s.tips||0, total:Object.values(byType).reduce((a,b)=>a+b,0)};
 }
 function renderSummary(){
   const el=document.getElementById('sumDrawers');
@@ -1600,7 +1603,7 @@ async function loadShortages(){
   let rows=[]; try{ rows=await Store.list(); }catch(e){}
   const recs=rows.filter(r=>r.type==='sales' && (r.date||'').slice(0,7)===month);
   shItems=[]; shOwedMap={};
-  recs.forEach(r=>{ const s=r.sales||{}; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0) - (r.cash_float||0); const shortage=diff<0?-diff:0;
+  recs.forEach(r=>{ const s=r.sales||{}; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const shortage=diff<0?-diff:0;
     if(shortage<=0) return;
     const explained=s.explainedAmt||0; const remaining=Math.max(0,shortage-explained);
     shItems.push({date:r.date,name:r.runner||'?',shortage,explained,remaining,settle:s.settle||''});
