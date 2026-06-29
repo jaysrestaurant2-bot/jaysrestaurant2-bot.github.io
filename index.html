@@ -440,7 +440,7 @@
         <div><label>Employee (waitron)</label><select id="sPerson" onchange="recalcS()"></select></div>
         <div><label>Opening float (M)</label><input type="number" step="0.01" id="sOpening" placeholder="0.00" oninput="recalcS()"></div>
         <div><label>Tips (M) — manager</label><input type="number" step="0.01" id="sTips" placeholder="0.00" oninput="recalcS()"></div>
-        <div><label>Net cash (cash − tips)</label><div class="amt" id="sNetCash" style="padding:10px 0;font-weight:700;">M0.00</div></div>
+        <div><label>Net cash (total cash − tips)</label><div class="amt" id="sNetCash" style="padding:10px 0;font-weight:700;">M0.00</div></div>
       </div>
 
       <h2 style="margin-top:18px;font-size:15px;">1. Count your cash</h2>
@@ -516,13 +516,13 @@
     </div>
     <div class="card">
       <h2>Daily sales summary — <span id="sumDateLabel">—</span></h2>
-      <p class="hint">Every waitron's drawer for this date, totalled. Shortfalls flag in red.</p>
+      <p class="hint">Every waitron's drawer for this date. <b>Total cash</b> = opening float + cash counted (what the waitron is holding). <b>Net cash</b> = total cash − tips. Shortfalls flag in red.</p>
       <div id="sumDrawers" style="overflow-x:auto;"></div>
     </div>
     <div class="card">
       <h2>End of day</h2>
       <div class="recon">
-        <div class="lbl">Total cash counted</div><div class="amt" id="sumCash">M0.00</div>
+        <div class="lbl">Total cash (float + counted)</div><div class="amt" id="sumCash">M0.00</div>
         <div class="lbl">– Total tips</div><div class="amt" id="sumTips">M0.00</div>
         <div class="lbl total">Net cash</div><div class="amt total" id="sumNet">M0.00</div>
       </div>
@@ -1459,7 +1459,7 @@ function recalcS(){
   const rem=document.getElementById('sRemaining'); if(rem) rem.textContent=M(remaining);
   const tips=parseFloat((document.getElementById('sTips')||{}).value)||0;
   const floatV=parseFloat((document.getElementById('sOpening')||{}).value)||0;
-  const ncEl=document.getElementById('sNetCash'); if(ncEl) ncEl.textContent=M(cc-tips);
+  const ncEl=document.getElementById('sNetCash'); if(ncEl) ncEl.textContent=M((floatV+cc)-tips);
   const feEl=document.getElementById('sFloatEcho'); if(feEl) feEl.textContent=M(floatV);
   const tcEl=document.getElementById('sTotalCash'); if(tcEl) tcEl.textContent=M(floatV+cc);
 }
@@ -1563,19 +1563,19 @@ function renderSummary(){
   const el=document.getElementById('sumDrawers');
   if(!sumRecords.length){ el.innerHTML='<span class="muted">No cash-ups for this date yet.</span>'; recalcSummary(); return; }
   const cols=SALES_PAY;
-  let head='<tr><th>Employee</th>'+cols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Tips</th><th class="num">Net cash</th><th class="num">Difference</th><th>Status</th></tr>';
-  let body=''; const gt={}; let gtTotal=0, gtDiff=0, gtTips=0, gtNet=0;
-  sumRecords.forEach(r=>{ const t=drawerTotals(r); const net=t.cash-t.tips;
+  let head='<tr><th>Employee</th>'+cols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Tips</th><th class="num">Total cash</th><th class="num">Net cash</th><th class="num">Difference</th><th>Status</th></tr>';
+  let body=''; const gt={}; let gtTotal=0, gtDiff=0, gtTips=0, gtNet=0, gtHand=0;
+  sumRecords.forEach(r=>{ const t=drawerTotals(r); const hand=(r.cash_float||0)+t.cash; const net=hand-t.tips;
     body+='<tr><td>'+esc(r.runner||'—')+'</td>'+cols.map(c=>{ const v=t.byType[c]||0; gt[c]=(gt[c]||0)+v; return '<td class="num">'+M(v)+'</td>'; }).join('')
-      +'<td class="num">'+M(t.total)+'</td><td class="num">'+M(t.tips)+'</td><td class="num"><b>'+M(net)+'</b></td><td class="num variance '+(t.diff<0?'short':'ok')+'">'+(t.diff>=0?'+ ':'– ')+M(Math.abs(t.diff))+'</td><td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
-    gtTotal+=t.total; gtDiff+=t.diff; gtTips+=t.tips; gtNet+=net; });
-  let foot='<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Grand total</td>'+cols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')+'<td class="num">'+M(gtTotal)+'</td><td class="num">'+M(gtTips)+'</td><td class="num">'+M(gtNet)+'</td><td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
+      +'<td class="num">'+M(t.total)+'</td><td class="num">'+M(t.tips)+'</td><td class="num"><b>'+M(hand)+'</b></td><td class="num"><b>'+M(net)+'</b></td><td class="num variance '+(t.diff<0?'short':'ok')+'">'+(t.diff>=0?'+ ':'– ')+M(Math.abs(t.diff))+'</td><td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
+    gtTotal+=t.total; gtDiff+=t.diff; gtTips+=t.tips; gtNet+=net; gtHand+=hand; });
+  let foot='<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Grand total</td>'+cols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')+'<td class="num">'+M(gtTotal)+'</td><td class="num">'+M(gtTips)+'</td><td class="num">'+M(gtHand)+'</td><td class="num">'+M(gtNet)+'</td><td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
   el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>';
   recalcSummary();
 }
 function recalcSummary(){
   let totalCash=0, totalTips=0;
-  sumRecords.forEach(r=>{ const t=drawerTotals(r); totalCash+=t.cash; totalTips+=t.tips; });
+  sumRecords.forEach(r=>{ const t=drawerTotals(r); totalCash+=(r.cash_float||0)+t.cash; totalTips+=t.tips; });
   const net=totalCash-totalTips;
   const ded=['dDeposit','dPetty','dCab','dFuel','dBread','dSavings'].reduce((s,id)=>s+snum(id),0);
   set('sumCash',M(totalCash)); set('sumTips',M(totalTips)); set('sumNet',M(net)); set('sumCIH',M(net-ded));
