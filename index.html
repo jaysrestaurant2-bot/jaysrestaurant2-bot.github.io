@@ -108,6 +108,9 @@
   .rpt-sign{margin-top:30px;display:flex;justify-content:space-between;gap:30px;font-size:12px;}
   .rpt-sign div{border-top:1px solid #999;padding-top:5px;flex:1;}
   @media print{ @page{margin:14mm;} body{background:#fff;} .no-print{display:none !important;} }
+  /* Toast */
+  #toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(100px);background:#1b6e4f;color:#fff;padding:11px 24px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.18);transition:transform .28s ease;z-index:9999;pointer-events:none;}
+  #toast.show{transform:translateX(-50%) translateY(0);}
 </style>
 </head>
 <body>
@@ -167,6 +170,7 @@
         <button class="btn ghost small" id="manageTeamBtn" onclick="showTeam()" style="display:none;">👥 Manage team</button>
         <button class="btn ghost small" id="salesSummaryBtn" onclick="openSalesSummary()" style="display:none;">📊 Daily summary</button>
         <button class="btn ghost small" id="shortagesBtn" onclick="openShortages()" style="display:none;">💸 Shortages (month)</button>
+        <button class="btn ghost small" id="reportsBtn" onclick="openReports()" style="display:none;">📋 Reports</button>
         <button class="btn ghost small" onclick="refreshList()">↻ Refresh</button>
         <button class="btn primary small" id="newRunBtn" onclick="newRecord()">+ New</button>
       </div>
@@ -568,10 +572,41 @@
     </div>
   </section>
 
+  <!-- REPORTS HUB -->
+  <section id="reportsView" class="hidden">
+    <div class="topbar no-print">
+      <button class="btn ghost small" onclick="showList()">← Back to list</button>
+      <h2 style="margin:0;">Reports</h2>
+    </div>
+    <div class="card">
+      <h2>Daily reports</h2>
+      <p class="hint">Pick a date to print everything that happened that day — cash-ups and PO runs combined.</p>
+      <div class="grid g2" style="max-width:560px;align-items:end;">
+        <div><label>Date</label><input type="date" id="rptDate"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn primary small" onclick="printRptDaily()">🖨 Full day report</button>
+          <button class="btn ghost small" onclick="printRptPODay()">🖨 PO runs only</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Monthly reports</h2>
+      <p class="hint">Pick a month for a month-end overview — useful for reviewing cash flow and preparing payroll deductions.</p>
+      <div class="grid g2" style="max-width:560px;align-items:end;">
+        <div><label>Month</label><input type="month" id="rptMonth"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn primary small" onclick="printRptMonthlyCash()">🖨 Monthly cash flow</button>
+          <button class="btn ghost small" onclick="printRptMonthlyShortages()">🖨 Monthly shortages</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <p class="footer-note">Jays Restaurant &middot; Runner, Waitron &amp; Daily Sales</p>
 </main>
 
 <datalist id="shopList"><option value="Shoprite"><option value="Econo"><option value="Market"></datalist>
+<div id="toast"></div>
 <div id="printArea"></div>
 
 <script>
@@ -969,7 +1004,7 @@ async function mergeLatest(editor){
   return editor;
 }
 async function saveRun(){
-  try{ const g=await mergeLatest(gather()); const saved=await Store.save(g); current=saved||current; alert('Saved'); }
+  try{ const g=await mergeLatest(gather()); const saved=await Store.save(g); current=saved||current; toast('✓ Saved'); }
   catch(e){ alert('Save failed: '+e.message); }
 }
 
@@ -1048,7 +1083,7 @@ async function refreshList(){
   }catch(e){wrap.innerHTML='<p class="muted">Could not load: '+esc(e.message)+'</p>';}
 }
 async function deleteRun(id){ if(!confirm('Delete this run?'))return; await Store.remove(id); refreshList(); }
-function showList(){['detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView'].forEach(id=>document.getElementById(id).classList.add('hidden'));document.getElementById('listView').classList.remove('hidden');updateModeUI();refreshList();}
+function showList(){['detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView','reportsView'].forEach(id=>document.getElementById(id).classList.add('hidden'));document.getElementById('listView').classList.remove('hidden');updateModeUI();refreshList();}
 function showTeam(){document.getElementById('listView').classList.add('hidden');document.getElementById('detailView').classList.add('hidden');document.getElementById('teamView').classList.remove('hidden');renderTeam();}
 async function renderTeam(){
   await loadTeam();
@@ -1253,6 +1288,7 @@ function updateModeUI(){
   const mgrSales = (listMode==='sales' && ME.role!=='waitron' && ME.role!=='runner');
   const ssb=document.getElementById('salesSummaryBtn'); if(ssb) ssb.style.display=mgrSales?'':'none';
   const shb=document.getElementById('shortagesBtn'); if(shb) shb.style.display=mgrSales?'':'none';
+  const rb=document.getElementById('reportsBtn'); if(rb) rb.style.display=(ME.role==='authoriser'||ME.role==='approver')?'':'none';
 }
 function newRecord(){ if(listMode==='waitron') openWaitron(null); else if(listMode==='sales') openSales(null); else openRun(null); }
 function blankWaitron(){
@@ -1387,7 +1423,7 @@ function applyWRole(){
   show('wBtnApprove', appEdit); show('wBtnReturn', appEdit); show('wBtnAddExp', wEdit);
   document.querySelectorAll('#waitronView .del').forEach(b=>{ b.style.display=b.disabled?'none':''; });
 }
-async function saveWaitron(){ try{ const s=await Store.save(gatherWaitron()); current=s||current; alert('Saved'); }catch(e){ alert('Save failed: '+e.message); } }
+async function saveWaitron(){ try{ const s=await Store.save(gatherWaitron()); current=s||current; toast('✓ Saved'); }catch(e){ alert('Save failed: '+e.message); } }
 
 /* ========================= DAILY SALES CASH-UP ========================= */
 const DENOMS=[200,100,50,20,10,5,2,1,0.5];
@@ -1514,7 +1550,7 @@ function applySRole(){
   show('sBtnSubmit', role==='waitron' && (st==='draft'||st==='returned'));
   show('sBtnApprove', mgrEdit); show('sBtnReturn', mgrEdit);
 }
-async function saveSales(){ try{ const g=await mergeLatest(gatherSales()); const s=await Store.save(g); current=s||current; alert('Saved'); }catch(e){ alert('Save failed: '+e.message); } }
+async function saveSales(){ try{ const g=await mergeLatest(gatherSales()); const s=await Store.save(g); current=s||current; toast('✓ Saved'); }catch(e){ alert('Save failed: '+e.message); } }
 async function persistS(){ const g=await mergeLatest(gatherSales()); const s=await Store.save(g); current=s||current; }
 async function ensureSavedS(){ if(!current.id){ await persistS(); } return current.id; }
 async function uploadS(folder,file){ if(!sb) throw new Error('Attachments need the live database.'); const id=await ensureSavedS(); const safe=file.name.replace(/[^\w.\-]+/g,'_'); const path=id+'/'+folder+'/'+Date.now()+'_'+safe; const {error}=await sb.storage.from('docs').upload(path,file,{contentType:file.type||undefined}); if(error)throw error; const {data}=sb.storage.from('docs').getPublicUrl(path); return {name:file.name,url:data.publicUrl}; }
@@ -1586,7 +1622,7 @@ async function saveSummary(){
   const rec = (sumDayRec&&sumDayRec.id)?{id:sumDayRec.id}:{};
   rec.type='salesday'; rec.date=date; rec.status='approved';
   rec.sales={deductions:{deposit:snum('dDeposit'),petty:snum('dPetty'),cab:snum('dCab'),fuel:snum('dFuel'),bread:snum('dBread'),savings:snum('dSavings')}};
-  try{ const s=await Store.save(rec); sumDayRec=s||sumDayRec; alert('Deductions saved'); }catch(e){ alert('Save failed: '+e.message); }
+  try{ const s=await Store.save(rec); sumDayRec=s||sumDayRec; toast('✓ Deductions saved'); }catch(e){ alert('Save failed: '+e.message); }
 }
 
 /* ========================= MONTHLY SHORTAGES ========================= */
@@ -1657,6 +1693,147 @@ function reportShortages(){
   }));
   const keys=Object.keys(shOwedMap).filter(k=>shOwedMap[k]>0).sort((a,b)=>shOwedMap[b]-shOwedMap[a]); let tot=0; keys.forEach(k=>tot+=shOwedMap[k]);
   if(keys.length) h+='<h3>Owed per waitron</h3>'+rptTable(['Waitron','Owed (M)'], keys.map(k=>[esc(k),M(shOwedMap[k])]).concat([['Total',M(tot)]]));
+  return h;
+}
+
+/* ---------- Toast ---------- */
+function toast(msg,ms=2500){
+  const t=document.getElementById('toast'); if(!t)return;
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),ms);
+}
+
+/* ---------- Reports Hub ---------- */
+function openReports(){
+  ['listView','detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  document.getElementById('reportsView').classList.remove('hidden');
+  const d=document.getElementById('rptDate'); if(!d.value) d.value=new Date().toISOString().slice(0,10);
+  const m=document.getElementById('rptMonth'); if(!m.value) m.value=new Date().toISOString().slice(0,7);
+}
+async function printRptDaily(){
+  const date=document.getElementById('rptDate').value; if(!date){alert('Pick a date first.');return;}
+  let rows=[]; try{rows=await Store.list();}catch(e){}
+  const salesRecs=rows.filter(r=>r.type==='sales'&&r.date===date);
+  const dayRec=rows.find(r=>r.type==='salesday'&&r.date===date)||null;
+  const poRecs=rows.filter(r=>(r.type||'po')==='po'&&r.date===date);
+  document.getElementById('printArea').innerHTML=reportDailySummaryFull(date,salesRecs,dayRec,poRecs);
+  document.body.classList.add('printing'); window.print(); setTimeout(()=>document.body.classList.remove('printing'),800);
+}
+async function printRptPODay(){
+  const date=document.getElementById('rptDate').value; if(!date){alert('Pick a date first.');return;}
+  let rows=[]; try{rows=await Store.list();}catch(e){}
+  const poRecs=rows.filter(r=>(r.type||'po')==='po'&&r.date===date);
+  if(!poRecs.length){toast('No PO runs on this date');return;}
+  document.getElementById('printArea').innerHTML=reportPOSummaryForDate(date,poRecs);
+  document.body.classList.add('printing'); window.print(); setTimeout(()=>document.body.classList.remove('printing'),800);
+}
+async function printRptMonthlyCash(){
+  const month=document.getElementById('rptMonth').value; if(!month){alert('Pick a month first.');return;}
+  let rows=[]; try{rows=await Store.list();}catch(e){}
+  document.getElementById('printArea').innerHTML=reportMonthlyCash(month,rows);
+  document.body.classList.add('printing'); window.print(); setTimeout(()=>document.body.classList.remove('printing'),800);
+}
+async function printRptMonthlyShortages(){
+  const month=document.getElementById('rptMonth').value; if(!month){alert('Pick a month first.');return;}
+  document.getElementById('shMonth').value=month; await loadShortages();
+  document.getElementById('printArea').innerHTML=reportShortages();
+  document.body.classList.add('printing'); window.print(); setTimeout(()=>document.body.classList.remove('printing'),800);
+}
+
+/* Full-day report: all waitron cash-ups + all PO runs for a date */
+function reportDailySummaryFull(date,salesRecs,dayRec,poRecs){
+  let h=rptHead('Daily Cash Report — '+date,'All departments · Jays Restaurant');
+  if(salesRecs.length){
+    h+='<h3>Sales cash-up</h3>';
+    const cols=SALES_PAY; const gt={}; let gtHand=0,gtTips=0,gtDiff=0;
+    const bdy=salesRecs.map(r=>{
+      const t=drawerTotals(r); const hand=(r.cash_float||0)+t.cash; const net=hand-t.tips;
+      cols.forEach(c=>{gt[c]=(gt[c]||0)+(t.byType[c]||0);}); gtHand+=hand; gtTips+=t.tips; gtDiff+=t.diff;
+      return [esc(r.runner||'—')].concat(cols.map(c=>M(t.byType[c]||0))).concat([M(hand),M(t.tips),M(net),'<span class="'+(t.diff<0?'rpt-neg':'rpt-pos')+'">'+M(t.diff)+'</span>',esc(r.status)]);
+    });
+    bdy.push(['TOTAL'].concat(cols.map(c=>M(gt[c]||0))).concat([M(gtHand),M(gtTips),M(gtHand-gtTips),'<span class="'+(gtDiff<0?'rpt-neg':'rpt-pos')+'">'+M(gtDiff)+'</span>','']));
+    h+=rptTable(['Employee'].concat(cols).concat(['Total cash','Tips','Net cash','Diff','Status']),bdy);
+    const ded=(dayRec&&dayRec.sales&&dayRec.sales.deductions)||{};
+    const dedTotal=['deposit','petty','cab','fuel','bread','savings'].reduce((s,k)=>s+(ded[k]||0),0);
+    const net=gtHand-gtTips;
+    h+='<div class="rpt-tot">Total cash: '+M(gtHand)+' &middot; Tips: '+M(gtTips)+' &middot; Net cash: '+M(net);
+    if(dedTotal>0) h+='<br>Deductions — Deposit: '+M(ded.deposit||0)+' &middot; Petty cash: '+M(ded.petty||0)+' &middot; Cab: '+M(ded.cab||0)+' &middot; Fuel: '+M(ded.fuel||0)+' &middot; Bread: '+M(ded.bread||0)+' &middot; Savings: '+M(ded.savings||0)+'<br><b>Cash in hand: '+M(net-dedTotal)+'</b>';
+    h+='</div>';
+  } else { h+='<p style="color:#6b7785;font-size:13px;">No sales cash-ups recorded for this date.</p>'; }
+  if(poRecs.length){
+    h+='<h3>Purchase order runs</h3>';
+    let ptot=0,ptrip=0,pcash=0;
+    const prows=poRecs.map(r=>{
+      const spent=(r.purchases||[]).reduce((s,p)=>s+(p.amount||0),0);
+      const cash=(r.purchases||[]).filter(p=>(p.method||'')==='Cash').reduce((s,p)=>s+(p.amount||0),0);
+      const trip=(r.trips||[]).reduce((s,t)=>s+(t.fee||0),0);
+      ptot+=spent; ptrip+=trip; pcash+=cash;
+      return [esc(r.po_number||'—'),esc(r.runner||'—'),M(cash),M(spent-cash),M(trip),M(spent+trip),esc(r.status)];
+    });
+    prows.push(['TOTAL','',M(pcash),M(ptot-pcash),M(ptrip),M(ptot+ptrip),'']);
+    h+=rptTable(['PO #','Runner','Cash','Non-cash','Trip fees','Total','Status'],prows);
+    h+='<div class="rpt-tot">Stock total: '+M(ptot)+' (cash: '+M(pcash)+', non-cash: '+M(ptot-pcash)+') &middot; Trip fees: '+M(ptrip)+' &middot; Grand total: '+M(ptot+ptrip)+'</div>';
+  }
+  return h;
+}
+
+/* PO-only report for a single date */
+function reportPOSummaryForDate(date,poRecs){
+  let h=rptHead('PO Runs — '+date,'Purchase orders · Jays Restaurant');
+  let ptot=0,ptrip=0,pcash=0;
+  const prows=poRecs.map(r=>{
+    const spent=(r.purchases||[]).reduce((s,p)=>s+(p.amount||0),0);
+    const cash=(r.purchases||[]).filter(p=>(p.method||'')==='Cash').reduce((s,p)=>s+(p.amount||0),0);
+    const trip=(r.trips||[]).reduce((s,t)=>s+(t.fee||0),0);
+    ptot+=spent; ptrip+=trip; pcash+=cash;
+    return [esc(r.po_number||'—'),esc(r.runner||'—'),M(cash),M(spent-cash),M(trip),M(spent+trip),esc(r.status)];
+  });
+  prows.push(['TOTAL','',M(pcash),M(ptot-pcash),M(ptrip),M(ptot+ptrip),'']);
+  h+=rptTable(['PO #','Runner','Cash spend','Non-cash spend','Trip fees','Total','Status'],prows);
+  h+='<div class="rpt-tot">Stock: '+M(ptot)+' (cash: '+M(pcash)+', non-cash: '+M(ptot-pcash)+') &middot; Trip fees: '+M(ptrip)+' &middot; Grand total: '+M(ptot+ptrip)+'</div>';
+  return h;
+}
+
+/* Monthly cash flow report — one row per day, both sales and PO sections */
+function reportMonthlyCash(month,rows){
+  let h=rptHead('Monthly Cash Report — '+month,'Cash flow summary · Jays Restaurant');
+  const salesByDay={}, poByDay={}, dayRecs={};
+  rows.filter(r=>r.type==='sales'&&(r.date||'').slice(0,7)===month).forEach(r=>{(salesByDay[r.date]=salesByDay[r.date]||[]).push(r);});
+  rows.filter(r=>(r.type||'po')==='po'&&(r.date||'').slice(0,7)===month).forEach(r=>{(poByDay[r.date]=poByDay[r.date]||[]).push(r);});
+  rows.filter(r=>r.type==='salesday'&&(r.date||'').slice(0,7)===month).forEach(r=>{dayRecs[r.date]=r;});
+  const allDays=[...new Set([...Object.keys(salesByDay),...Object.keys(poByDay)])].sort();
+  if(!allDays.length){ h+='<p style="color:#6b7785;font-size:13px;">No records found for this month.</p>'; return h; }
+  if(Object.keys(salesByDay).length){
+    h+='<h3>Daily sales (cash-up summary)</h3>';
+    let srows=[],stot=0,stipstot=0,snettot=0,sdedtot=0;
+    allDays.forEach(d=>{
+      const recs=salesByDay[d]||[]; if(!recs.length)return;
+      let hand=0,tips=0; recs.forEach(r=>{const t=drawerTotals(r);hand+=(r.cash_float||0)+t.cash;tips+=t.tips;});
+      const net=hand-tips; const dr=dayRecs[d];
+      const ded=dr&&dr.sales&&dr.sales.deductions?['deposit','petty','cab','fuel','bread','savings'].reduce((s,k)=>s+(dr.sales.deductions[k]||0),0):null;
+      stot+=hand; stipstot+=tips; snettot+=net; if(ded!=null)sdedtot+=ded;
+      srows.push([esc(d),recs.length+' staff',M(hand),M(tips),M(net),ded!=null?M(ded):'—',ded!=null?M(net-ded):'—']);
+    });
+    srows.push(['MONTH TOTAL','',M(stot),M(stipstot),M(snettot),M(sdedtot),M(snettot-sdedtot)]);
+    h+=rptTable(['Date','Staff','Total cash','Tips','Net cash','Deductions','Cash in hand'],srows);
+  }
+  if(Object.keys(poByDay).length){
+    h+='<h3>Purchase orders (stock runs)</h3>';
+    let prows=[],ptottot=0,pcastot=0,ptrptot=0;
+    allDays.forEach(d=>{
+      const recs=poByDay[d]||[]; if(!recs.length)return;
+      let cash=0,total=0,trip=0;
+      recs.forEach(r=>{
+        cash+=(r.purchases||[]).filter(p=>(p.method||'')==='Cash').reduce((s,p)=>s+(p.amount||0),0);
+        total+=(r.purchases||[]).reduce((s,p)=>s+(p.amount||0),0);
+        trip+=(r.trips||[]).reduce((s,t)=>s+(t.fee||0),0);
+      });
+      ptottot+=total; pcastot+=cash; ptrptot+=trip;
+      prows.push([esc(d),recs.length+' run(s)',M(cash),M(total-cash),M(trip),M(total+trip)]);
+    });
+    prows.push(['MONTH TOTAL','',M(pcastot),M(ptottot-pcastot),M(ptrptot),M(ptottot+ptrptot)]);
+    h+=rptTable(['Date','Runs','Cash spend','Non-cash','Trip fees','Total'],prows);
+  }
   return h;
 }
 
