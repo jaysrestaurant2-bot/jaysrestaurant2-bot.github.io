@@ -1165,7 +1165,8 @@ function reportSales(){
   h+='<h3>Counted vs POS</h3>'+rptTable(['Payment type','Counted (M)','Expected (M)','Difference'],pr);
   h+='<div class="rpt-tot">Opening float '+M(d.cash_float||0)+' + cash counted '+M((s.pay||[]).filter(p=>p.type==='Cash').reduce((a,p)=>a+(p.counted||0),0))+' = Total cash '+M((d.cash_float||0)+(s.pay||[]).filter(p=>p.type==='Cash').reduce((a,p)=>a+(p.counted||0),0))+'</div>';
   h+='<div class="rpt-tot">Tips: '+M(s.tips||0)+' &nbsp;&middot;&nbsp; Total difference: <span class="'+(td<0?'rpt-neg':'rpt-pos')+'">'+M(td)+'</span></div>';
-  if(s.explanation) h+='<h3>Shortage explanation</h3><div style="font-size:12px;">'+esc(s.explanation)+(s.shortageReceipt&&s.shortageReceipt.url?' &nbsp;(receipt attached)':'')+'</div>';
+  const shRcpts=(Array.isArray(s.shortageReceipts)&&s.shortageReceipts.length)?s.shortageReceipts:(s.shortageReceipt&&s.shortageReceipt.url?[s.shortageReceipt]:[]);
+  if(s.explanation) h+='<h3>Shortage explanation</h3><div style="font-size:12px;">'+esc(s.explanation)+(shRcpts.length?' &nbsp;('+shRcpts.length+' receipt'+(shRcpts.length>1?'s':'')+' attached)':'')+'</div>';
   if(s.explainedAmt||s.settle){ const dff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const shg=dff<0?-dff:0; const rm=Math.max(0,shg-(s.explainedAmt||0));
     h+='<div class="rpt-tot">Total short: '+M(shg)+' &nbsp;&middot;&nbsp; Explained: '+M(s.explainedAmt||0)+' &nbsp;&middot;&nbsp; Remaining: '+M(rm)+(s.settle?(' &middot; '+esc(s.settle)):'')+'</div>'; }
   h+=rptSign(d.runner,d.approver,d.approved_at); return h;
@@ -1317,7 +1318,8 @@ function fillWaitron(r){
   document.getElementById('wApproverComments').value=r.approver_comments||'';
   const sel=document.getElementById('wPerson');
   let names=waitronNames(); if(r.runner && !names.includes(r.runner)) names=[r.runner].concat(names);
-  sel.innerHTML='<option value=""></option>'+names.map(n=>'<option'+(n===r.runner?' selected':'')+'>'+esc(n)+'</option>').join('');
+  const wDef=r.runner||(ME.role==='waitron'?ME.name:'')||names[0]||'';
+  sel.innerHTML=names.map(n=>'<option'+(n===wDef?' selected':'')+'>'+esc(n)+'</option>').join('');
   document.getElementById('wExpBody').innerHTML=''; (r.purchases||[]).forEach(addExpense); if(!(r.purchases||[]).length)addExpense();
   renderWStatus(); applyWRole(); recalcW();
 }
@@ -1427,7 +1429,7 @@ async function saveWaitron(){ try{ const s=await Store.save(gatherWaitron()); cu
 
 /* ========================= DAILY SALES CASH-UP ========================= */
 const DENOMS=[200,100,50,20,10,5,2,1,0.5];
-const SALES_PAY=['Cash','Card','M-Pesa','ECOCASH','NetBank','Tyme Bank','Post Bank'];
+const SALES_PAY=['Cash','M-Pesa','ECOCASH','NetBank','Tyme Bank','Post Bank'];
 /* Waitron names for the cash-up dropdown — edit this list anytime. */
 const WAITRON_NAMES=['Nolly','Lizzy','Twinpy','Chief','Mampe','TP','Morie','Thato','Lemo','David'];
 function blankSales(){
@@ -1457,7 +1459,8 @@ function fillSales(r){
   let names=WAITRON_NAMES.slice();
   if(ME.role==='waitron' && ME.name && !names.includes(ME.name)) names.unshift(ME.name);
   if(r.runner && !names.includes(r.runner)) names.unshift(r.runner);
-  sel.innerHTML='<option value=""></option>'+names.map(n=>'<option'+(n===r.runner?' selected':'')+'>'+esc(n)+'</option>').join('');
+  const sDef=r.runner||(ME.role==='waitron'?ME.name:'')||names[0]||'';
+  sel.innerHTML=names.map(n=>'<option'+(n===sDef?' selected':'')+'>'+esc(n)+'</option>').join('');
   const db=document.getElementById('denomBody'); db.innerHTML='';
   DENOMS.forEach(v=>{ const c=(s.denoms&&s.denoms[v])||''; const tr=document.createElement('tr'); tr.dataset.val=v;
     tr.innerHTML='<td>'+v+'</td><td class="num"><input type="number" min="0" step="1" value="'+c+'" placeholder="0" oninput="recalcS()"></td><td class="num denomAmt">M0.00</td>'; db.appendChild(tr); });
@@ -1510,9 +1513,11 @@ function gatherSales(){
     counted: tr.dataset.type==='Cash' ? cc : (parseFloat((tr.querySelector('.payCounted')||{}).value)||0),
     expected: parseFloat((tr.querySelector('.payExpected')||{}).value)||0 }));
   const prevRcpt=(current.sales&&current.sales.shortageReceipt)||null;
+  const prevRcpts=Array.isArray(current.sales&&current.sales.shortageReceipts)?current.sales.shortageReceipts:[];
   current.sales={ denoms, tips:parseFloat(document.getElementById('sTips').value)||0, pay,
     explanation:document.getElementById('sExplain').value,
     shortageReceipt:prevRcpt,
+    shortageReceipts:prevRcpts,
     settle:document.getElementById('sSettle').value,
     explainedAmt:parseFloat(document.getElementById('sExplainedAmt').value)||0 };
   current.approver=document.getElementById('sApprover').value;
@@ -1522,7 +1527,11 @@ function gatherSales(){
 function setSStatus(s){
   if(!current)return;
   if(s==='submitted' && !document.getElementById('sPerson').value){alert('Choose the employee first.');return;}
-  if(s==='approved'){current.approved_at=new Date().toISOString();}
+  if(s==='approved'){
+    const tips=document.getElementById('sTips');
+    if(tips && tips.value.trim()===''){alert('Enter the tips amount before approving — use 0 if there are none.');return;}
+    current.approved_at=new Date().toISOString();
+  }
   current.status=s; renderSStatus(); applySRole(); saveSales();
 }
 function renderSStatus(){
@@ -1554,10 +1563,37 @@ async function saveSales(){ try{ const g=await mergeLatest(gatherSales()); const
 async function persistS(){ const g=await mergeLatest(gatherSales()); const s=await Store.save(g); current=s||current; }
 async function ensureSavedS(){ if(!current.id){ await persistS(); } return current.id; }
 async function uploadS(folder,file){ if(!sb) throw new Error('Attachments need the live database.'); const id=await ensureSavedS(); const safe=file.name.replace(/[^\w.\-]+/g,'_'); const path=id+'/'+folder+'/'+Date.now()+'_'+safe; const {error}=await sb.storage.from('docs').upload(path,file,{contentType:file.type||undefined}); if(error)throw error; const {data}=sb.storage.from('docs').getPublicUrl(path); return {name:file.name,url:data.publicUrl}; }
-async function attachShortageReceipt(input){ if(!input.files||!input.files[0])return; document.getElementById('sShortRcptBox').textContent='Uploading…'; try{ current.sales=current.sales||{}; current.sales.shortageReceipt=await uploadS('sales',input.files[0]); await persistS(); }catch(e){ alert('Upload failed: '+e.message); } input.value=''; renderShortRcpt(); }
-function renderShortRcpt(){ const box=document.getElementById('sShortRcptBox'); if(!box)return; const f=current&&current.sales&&current.sales.shortageReceipt;
-  box.innerHTML=(f&&f.url)?'📎 <a href="'+f.url+'" target="_blank" rel="noopener">'+esc(f.name||'receipt')+'</a> <a href="#" class="no-print" style="color:var(--bad);text-decoration:none;" onclick="clearShortRcpt();return false;">✕</a>':'<span class="muted">No receipt attached.</span>'; }
-function clearShortRcpt(){ if(!confirm('Remove this receipt?'))return; current.sales=current.sales||{}; current.sales.shortageReceipt=null; persistS().then(renderShortRcpt); }
+async function attachShortageReceipt(input){
+  if(!input.files||!input.files[0])return;
+  const box=document.getElementById('sShortRcptBox');
+  box.insertAdjacentHTML('afterbegin','<span class="muted" style="font-size:11px;">Uploading… </span>');
+  try{
+    current.sales=current.sales||{};
+    if(!Array.isArray(current.sales.shortageReceipts)) current.sales.shortageReceipts=[];
+    const f=await uploadS('sales',input.files[0]);
+    current.sales.shortageReceipts.push(f);
+    await persistS();
+  }catch(e){ alert('Upload failed: '+e.message); }
+  input.value=''; renderShortRcpt();
+}
+function renderShortRcpt(){
+  const box=document.getElementById('sShortRcptBox'); if(!box)return;
+  const s=current&&current.sales||{};
+  let rcpts=Array.isArray(s.shortageReceipts)?s.shortageReceipts.slice():[];
+  if(!rcpts.length && s.shortageReceipt&&s.shortageReceipt.url) rcpts=[s.shortageReceipt];
+  if(!rcpts.length){ box.innerHTML='<span class="muted">No receipts attached.</span>'; return; }
+  box.innerHTML=rcpts.map((f,i)=>'<div style="margin-bottom:4px;">📎 <a href="'+f.url+'" target="_blank" rel="noopener">'+esc(f.name||'receipt')+'</a><a href="#" class="no-print" style="color:var(--bad);text-decoration:none;font-size:12px;margin-left:8px;" onclick="removeShortRcpt('+i+');return false;">✕ remove</a></div>').join('');
+}
+function removeShortRcpt(i){
+  if(!confirm('Remove this receipt?'))return;
+  current.sales=current.sales||{};
+  let rcpts=Array.isArray(current.sales.shortageReceipts)?current.sales.shortageReceipts.slice():[];
+  if(!rcpts.length && current.sales.shortageReceipt&&current.sales.shortageReceipt.url) rcpts=[current.sales.shortageReceipt];
+  rcpts.splice(i,1);
+  current.sales.shortageReceipts=rcpts;
+  current.sales.shortageReceipt=null;
+  persistS().then(renderShortRcpt);
+}
 
 /* ========================= DAILY SALES SUMMARY (roll-up) ========================= */
 let sumRecords=[], sumDayRec=null;
