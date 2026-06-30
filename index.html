@@ -539,6 +539,8 @@
         <div><label>Bread (M)</label><input type="number" step="0.01" id="dBread" oninput="recalcSummary()"></div>
         <div><label>Savings (M)</label><input type="number" step="0.01" id="dSavings" oninput="recalcSummary()"></div>
       </div>
+      <div id="otherDedsRows" style="margin-top:8px;"></div>
+      <button class="btn ghost small no-print" onclick="addOtherDed()" style="margin-top:6px;">+ Add other deduction</button>
       <div class="recon" style="margin-top:14px;">
         <div class="lbl total">Cash in hand</div><div class="amt total" id="sumCIH">M0.00</div>
       </div>
@@ -1173,15 +1175,33 @@ function reportSales(){
 }
 function reportSummary(){
   const date=document.getElementById('sumDate').value; const cols=SALES_PAY;
-  let rows=[]; const gt={}; let gtTotal=0,gtDiff=0,totalCash=0,totalTips=0;
-  sumRecords.forEach(r=>{ const t=drawerTotals(r);
-    rows.push([esc(r.runner||'')].concat(cols.map(c=>{const v=t.byType[c]||0;gt[c]=(gt[c]||0)+v;return M(v);})).concat([M(t.total),'<span class="'+(t.diff<0?'rpt-neg':'rpt-pos')+'">'+M(t.diff)+'</span>']));
-    gtTotal+=t.total;gtDiff+=t.diff;totalCash+=t.cash;totalTips+=t.tips; });
-  rows.push(['GRAND TOTAL'].concat(cols.map(c=>M(gt[c]||0))).concat([M(gtTotal),M(gtDiff)]));
+  let rows=[]; const gt={}; let gtTotal=0, gtTips=0, gtHand=0, gtNet=0;
+  sumRecords.forEach(r=>{
+    const t=drawerTotals(r);
+    const shortage=t.diff<0?-t.diff:0; const remaining=Math.max(0,shortage-(r.sales&&r.sales.explainedAmt||0));
+    const adjDiff=t.diff>=0?t.diff:-remaining;
+    const hand=(r.cash_float||0)+t.cash+t.paidShortage; const net=hand-t.tips;
+    rows.push([esc(r.runner||'')].concat(cols.map(c=>{const v=t.byType[c]||0;gt[c]=(gt[c]||0)+v;return M(v);}))
+      .concat([M(t.total),M(t.tips),M(hand),M(net),'<span class="'+(adjDiff<0?'rpt-neg':'rpt-pos')+'">'+(adjDiff>=0?'+ ':'– ')+M(Math.abs(adjDiff))+'</span>'+(t.paidShortage>0?' *paid*':'')+((r.sales&&r.sales.explainedAmt>0)?' (adj)':'')]));
+    gtTotal+=t.total; gtTips+=t.tips; gtHand+=hand; gtNet+=net;
+  });
+  rows.push(['GRAND TOTAL'].concat(cols.map(c=>M(gt[c]||0))).concat([M(gtTotal),M(gtTips),M(gtHand),M(gtNet),'','']));
   let h=rptHead('Daily Sales Summary',date||'');
-  h+='<h3>Drawers</h3>'+rptTable(['Employee'].concat(cols).concat(['Total','Diff']),rows);
-  const ded=['dDeposit','dPetty','dCab','dFuel','dBread','dSavings'].reduce((s,id)=>s+snum(id),0); const net=totalCash-totalTips;
-  h+='<div class="rpt-tot">Total cash: '+M(totalCash)+' &nbsp;&middot;&nbsp; Tips: '+M(totalTips)+' &nbsp;&middot;&nbsp; Net cash: '+M(net)+' &nbsp;&middot;&nbsp; Deductions: '+M(ded)+'<br><b>Cash in hand: '+M(net-ded)+'</b></div>';
+  h+='<h3>Drawers</h3>'+rptTable(['Employee'].concat(cols).concat(['Total','Tips','Total cash','Net cash','Adj. diff']),rows);
+  // End of day section
+  const fixedDed=[{id:'dDeposit',lbl:'Deposit'},{id:'dPetty',lbl:'Petty cash'},{id:'dCab',lbl:'Cab'},{id:'dFuel',lbl:'Fuel'},{id:'dBread',lbl:'Bread'},{id:'dSavings',lbl:'Savings'}];
+  let dedTotal=0;
+  let dedLines=fixedDed.map(f=>{const v=snum(f.id);if(!v)return '';dedTotal+=v;return '<tr><td style="padding:2px 8px;">– '+f.lbl+'</td><td class="num" style="padding:2px 6px;">'+M(v)+'</td></tr>';}).join('');
+  otherDeds.forEach(d=>{const v=parseFloat(d.amount)||0;if(!v&&!d.label)return;dedTotal+=v;dedLines+='<tr><td style="padding:2px 8px;">– '+(d.label?esc(d.label):'Other')+'</td><td class="num" style="padding:2px 6px;">'+M(v)+'</td></tr>';});
+  h+='<h3>End of day</h3>';
+  h+='<table style="min-width:280px;border-collapse:collapse;">'
+    +'<tbody>'
+    +'<tr style="border-bottom:1px solid #ccc;"><td style="padding:3px 8px;">Total cash (float + counted + paid shortages)</td><td class="num" style="padding:3px 6px;"><b>'+M(gtHand)+'</b></td></tr>'
+    +(gtTips>0?'<tr><td style="padding:2px 8px;">– Tips</td><td class="num" style="padding:2px 6px;">'+M(gtTips)+'</td></tr>':'')
+    +'<tr style="border-top:1px solid #ccc;border-bottom:1px solid #ccc;"><td style="padding:3px 8px;"><b>Net cash</b></td><td class="num" style="padding:3px 6px;"><b>'+M(gtNet)+'</b></td></tr>'
+    +dedLines
+    +(dedTotal>0?'<tr style="border-top:2px solid #333;"><td style="padding:4px 8px;"><b>Cash in hand</b></td><td class="num" style="padding:4px 6px;"><b>'+M(gtNet-dedTotal)+'</b></td></tr>':'')
+    +'</tbody></table>';
   return h;
 }
 function buildPrintReport(){
@@ -1596,8 +1616,24 @@ function removeShortRcpt(i){
 }
 
 /* ========================= DAILY SALES SUMMARY (roll-up) ========================= */
-let sumRecords=[], sumDayRec=null;
+let sumRecords=[], sumDayRec=null, otherDeds=[];
 function snum(id){ return parseFloat(document.getElementById(id).value)||0; }
+function addOtherDed(label='',amount=''){
+  otherDeds.push({label,amount:amount===''?'':parseFloat(amount)||0});
+  renderOtherDeds(); recalcSummary();
+}
+function renderOtherDeds(){
+  const el=document.getElementById('otherDedsRows'); if(!el)return;
+  if(!otherDeds.length){el.innerHTML='';return;}
+  el.innerHTML=otherDeds.map((d,i)=>
+    '<div class="grid g2" style="margin-bottom:4px;align-items:end;">'
+    +'<div><label style="font-size:11px;">Description</label><input type="text" placeholder="e.g. Ice" value="'+esc(d.label)+'" oninput="otherDeds['+i+'].label=this.value;" style="width:100%;"></div>'
+    +'<div style="display:flex;gap:6px;align-items:flex-end;">'
+    +'<div style="flex:1;"><label style="font-size:11px;">Amount (M)</label><input type="number" step="0.01" placeholder="0.00" value="'+(d.amount===''?'':d.amount)+'" style="width:100%;" oninput="otherDeds['+i+'].amount=parseFloat(this.value)||0;recalcSummary();"></div>'
+    +'<button class="btn ghost small no-print" onclick="otherDeds.splice('+i+',1);renderOtherDeds();recalcSummary();" style="margin-bottom:2px;">✕</button>'
+    +'</div></div>'
+  ).join('');
+}
 function openSalesSummary(){
   ['listView','detailView','teamView','waitronView','salesView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
   document.getElementById('salesSummaryView').classList.remove('hidden');
@@ -1614,6 +1650,8 @@ async function loadSummary(){
   document.getElementById('dDeposit').value=ded.deposit||''; document.getElementById('dPetty').value=ded.petty||'';
   document.getElementById('dCab').value=ded.cab||''; document.getElementById('dFuel').value=ded.fuel||'';
   document.getElementById('dBread').value=ded.bread||''; document.getElementById('dSavings').value=ded.savings||'';
+  otherDeds=Array.isArray(ded.other)?ded.other.map(d=>({label:d.label||'',amount:d.amount||0})):[];
+  renderOtherDeds();
   const owed={}; rows.filter(r=>r.type==='sales' && r.sales && r.sales.settle==='Owed — deduct from salary').forEach(r=>{ const s=r.sales; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const rem=Math.max(0,(diff<0?-diff:0)-(s.explainedAmt||0)); if(rem>0) owed[r.runner||'?']=(owed[r.runner||'?']||0)+rem; });
   renderOwed(owed);
   renderSummary();
@@ -1629,7 +1667,10 @@ function renderOwed(owed){
 function drawerTotals(r){
   const s=r.sales||{}; const pay=s.pay||[]; let cash=0, byType={}, diff=0;
   pay.forEach(p=>{ byType[p.type]=(byType[p.type]||0)+(p.counted||0); if(p.type==='Cash')cash=p.counted||0; diff+=((p.counted||0)-(p.expected||0)); });
-  return {cash, byType, diff, tips:s.tips||0, total:Object.values(byType).reduce((a,b)=>a+b,0)};
+  const shortage=diff<0?-diff:0;
+  const remaining=Math.max(0,shortage-(s.explainedAmt||0));
+  const paidShortage=(s.settle==='Paid immediately')?remaining:0;
+  return {cash, byType, diff, tips:s.tips||0, total:Object.values(byType).reduce((a,b)=>a+b,0), paidShortage};
 }
 function renderSummary(){
   const el=document.getElementById('sumDrawers');
@@ -1637,9 +1678,10 @@ function renderSummary(){
   const cols=SALES_PAY;
   let head='<tr><th>Employee</th>'+cols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Tips</th><th class="num">Total cash</th><th class="num">Net cash</th><th class="num">Difference</th><th>Status</th></tr>';
   let body=''; const gt={}; let gtTotal=0, gtDiff=0, gtTips=0, gtNet=0, gtHand=0;
-  sumRecords.forEach(r=>{ const t=drawerTotals(r); const hand=(r.cash_float||0)+t.cash; const net=hand-t.tips;
+  sumRecords.forEach(r=>{ const t=drawerTotals(r); const hand=(r.cash_float||0)+t.cash+t.paidShortage; const net=hand-t.tips;
+    const shortage=t.diff<0?-t.diff:0; const remaining=Math.max(0,shortage-(r.sales&&r.sales.explainedAmt||0)); const adjDiff=t.diff>=0?t.diff:-remaining;
     body+='<tr><td>'+esc(r.runner||'—')+'</td>'+cols.map(c=>{ const v=t.byType[c]||0; gt[c]=(gt[c]||0)+v; return '<td class="num">'+M(v)+'</td>'; }).join('')
-      +'<td class="num">'+M(t.total)+'</td><td class="num">'+M(t.tips)+'</td><td class="num"><b>'+M(hand)+'</b></td><td class="num"><b>'+M(net)+'</b></td><td class="num variance '+(t.diff<0?'short':'ok')+'">'+(t.diff>=0?'+ ':'– ')+M(Math.abs(t.diff))+'</td><td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
+      +'<td class="num">'+M(t.total)+'</td><td class="num">'+M(t.tips)+'</td><td class="num"><b>'+M(hand)+'</b></td><td class="num"><b>'+M(net)+'</b></td><td class="num variance '+(adjDiff<0?'short':'ok')+'">'+(adjDiff>=0?'+ ':'– ')+M(Math.abs(adjDiff))+(t.paidShortage>0?' <span class="muted" style="font-size:10px;">(+paid)</span>':'')+(r.sales&&r.sales.explainedAmt>0?' <span class="muted" style="font-size:10px;">(adj)</span>':'')+'</td><td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
     gtTotal+=t.total; gtDiff+=t.diff; gtTips+=t.tips; gtNet+=net; gtHand+=hand; });
   let foot='<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Grand total</td>'+cols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')+'<td class="num">'+M(gtTotal)+'</td><td class="num">'+M(gtTips)+'</td><td class="num">'+M(gtHand)+'</td><td class="num">'+M(gtNet)+'</td><td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
   el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>';
@@ -1647,9 +1689,11 @@ function renderSummary(){
 }
 function recalcSummary(){
   let totalCash=0, totalTips=0;
-  sumRecords.forEach(r=>{ const t=drawerTotals(r); totalCash+=(r.cash_float||0)+t.cash; totalTips+=t.tips; });
+  sumRecords.forEach(r=>{ const t=drawerTotals(r); totalCash+=(r.cash_float||0)+t.cash+t.paidShortage; totalTips+=t.tips; });
   const net=totalCash-totalTips;
-  const ded=['dDeposit','dPetty','dCab','dFuel','dBread','dSavings'].reduce((s,id)=>s+snum(id),0);
+  const fixedDed=['dDeposit','dPetty','dCab','dFuel','dBread','dSavings'].reduce((s,id)=>s+snum(id),0);
+  const otherDedTotal=otherDeds.reduce((s,d)=>s+(parseFloat(d.amount)||0),0);
+  const ded=fixedDed+otherDedTotal;
   set('sumCash',M(totalCash)); set('sumTips',M(totalTips)); set('sumNet',M(net)); set('sumCIH',M(net-ded));
 }
 async function saveSummary(){
@@ -1657,7 +1701,7 @@ async function saveSummary(){
   if(!date){alert('Pick a date first.');return;}
   const rec = (sumDayRec&&sumDayRec.id)?{id:sumDayRec.id}:{};
   rec.type='salesday'; rec.date=date; rec.status='approved';
-  rec.sales={deductions:{deposit:snum('dDeposit'),petty:snum('dPetty'),cab:snum('dCab'),fuel:snum('dFuel'),bread:snum('dBread'),savings:snum('dSavings')}};
+  rec.sales={deductions:{deposit:snum('dDeposit'),petty:snum('dPetty'),cab:snum('dCab'),fuel:snum('dFuel'),bread:snum('dBread'),savings:snum('dSavings'),other:otherDeds.filter(d=>d.label||d.amount)}};
   try{ const s=await Store.save(rec); sumDayRec=s||sumDayRec; toast('✓ Deductions saved'); }catch(e){ alert('Save failed: '+e.message); }
 }
 
