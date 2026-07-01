@@ -412,6 +412,29 @@
       </div>
     </div>
 
+    <div class="card" id="secWShortage">
+      <h2>Shortage handling <span class="who">Manager</span></h2>
+      <p class="hint" id="wShortHint">No shortage — nothing to settle.</p>
+      <div id="wShortFields" style="display:none;">
+        <div class="grid g3" style="margin-top:10px;">
+          <div><label>Total short (M)</label><div class="amt" id="wrShortage" style="padding:10px 0;font-weight:700;color:var(--bad);">M0.00</div></div>
+          <div><label>Explained amount (M)</label><input type="number" step="0.01" id="wExplainedAmt" placeholder="0.00" oninput="recalcW()"></div>
+          <div><label>Remaining short (M)</label><div class="amt" id="wrRemaining" style="padding:10px 0;font-weight:700;">M0.00</div></div>
+        </div>
+        <div class="grid g2" style="margin-top:10px;">
+          <div><label>Explanation</label><textarea id="wExplanation" rows="2" placeholder="Reason for unaccounted cash…"></textarea></div>
+          <div><label>Handling</label>
+            <select id="wSettle">
+              <option value=""></option>
+              <option>Paid immediately</option>
+              <option>Owed — deduct from salary</option>
+              <option>N/A</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="card" id="secWApprover">
       <h2>Review &amp; approval <span class="who">Approver</span></h2>
       <div class="grid g2">
@@ -1288,7 +1311,7 @@ async function showApp(session){
 let listMode='po';
 let dateFilter=null;
 function setDateFilter(d){ dateFilter=d; refreshList(); }
-function waitronNames(){ return TEAM.filter(t=>t.role==='waitron').map(t=>t.name||t.email); }
+function waitronNames(){ const t=TEAM.filter(t=>t.role==='waitron').map(t=>t.name||t.email); return t.length?t:WAITRON_NAMES; }
 function setMode(m){ listMode=m; dateFilter=null; updateModeUI(); refreshList(); }
 function updateModeUI(){
   const btns={po:'modePoBtn',waitron:'modeWaitronBtn',sales:'modeSalesBtn'};
@@ -1340,6 +1363,10 @@ function fillWaitron(r){
   let names=waitronNames(); if(r.runner && !names.includes(r.runner)) names=[r.runner].concat(names);
   const wDef=r.runner||(ME.role==='waitron'?ME.name:'')||names[0]||'';
   sel.innerHTML=names.map(n=>'<option'+(n===wDef?' selected':'')+'>'+esc(n)+'</option>').join('');
+  const ws=r.sales||{};
+  document.getElementById('wExplanation').value=ws.explanation||'';
+  document.getElementById('wExplainedAmt').value=ws.explainedAmt||'';
+  document.getElementById('wSettle').value=ws.settle||'';
   document.getElementById('wExpBody').innerHTML=''; (r.purchases||[]).forEach(addExpense); if(!(r.purchases||[]).length)addExpense();
   renderWStatus(); applyWRole(); recalcW();
 }
@@ -1357,6 +1384,11 @@ function gatherWaitron(){
     note:(tr.querySelector('.wNote')||{}).value||'',
     amount:parseFloat((tr.querySelector('.wAmt')||{}).value)||0,
     receiptFile: tr._receiptFile||null }));
+  current.sales={
+    explanation:document.getElementById('wExplanation').value,
+    explainedAmt:parseFloat(document.getElementById('wExplainedAmt').value)||0,
+    settle:document.getElementById('wSettle').value
+  };
   return current;
 }
 function recalcW(){
@@ -1368,6 +1400,13 @@ function recalcW(){
   set('wrFloat',M(float)); set('wrSpent',M(spent)); set('wrShould',M(should)); set('wrReturned',M(returned));
   const v=document.getElementById('wrVariance'); v.textContent=(variance>=0?'+ ':'– ')+M(Math.abs(variance));
   v.className='amt total variance '+(Math.abs(variance)<0.005?'ok':(variance<0?'short':'ok'));
+  // Shortage handling section
+  const shortage=variance<-0.005?-variance:0;
+  const explainedAmt=parseFloat((document.getElementById('wExplainedAmt')||{}).value)||0;
+  const remaining=Math.max(0,shortage-explainedAmt);
+  const sf=document.getElementById('wShortFields'), sh=document.getElementById('wShortHint');
+  if(shortage>0.005){ if(sf)sf.style.display=''; if(sh)sh.style.display='none'; set('wrShortage',M(shortage)); set('wrRemaining',M(remaining)); }
+  else { if(sf)sf.style.display='none'; if(sh)sh.style.display=''; }
 }
 function addExpense(e={}){
   const tr=document.createElement('tr'); tr._receiptFile=e.receiptFile||null;
@@ -1438,9 +1477,11 @@ function applyWRole(){
   const isW = role==='waitron';
   document.getElementById('secWAuth').style.display = isW ? 'none' : '';
   document.getElementById('secWApprover').style.display = isW ? 'none' : '';
+  document.getElementById('secWShortage').style.display = isW ? 'none' : '';
   enableSection('secWAuth', authEdit);
   enableSection('secWExpense', wEdit);
   enableSection('secWApprover', appEdit);
+  enableSection('secWShortage', authEdit||appEdit);
   show('wBtnAuthorise', authEdit); show('wBtnSubmit', wEdit);
   show('wBtnApprove', appEdit); show('wBtnReturn', appEdit); show('wBtnAddExp', wEdit);
   document.querySelectorAll('#waitronView .del').forEach(b=>{ b.style.display=b.disabled?'none':''; });
@@ -1667,6 +1708,19 @@ async function loadSummary(){
   document.getElementById('dBread').value=ded.bread||''; document.getElementById('dSavings').value=ded.savings||'';
   otherDeds=Array.isArray(ded.other)?ded.other.map(d=>({label:d.label||'',amount:d.amount||0})):[];
   renderOtherDeds();
+  // Auto-compute petty cash from waitron floats issued the next day (their cash comes from this day's till)
+  const nextDay=new Date(date); nextDay.setDate(nextDay.getDate()+1);
+  const nextDate=nextDay.toISOString().slice(0,10);
+  const autoPetty=rows.filter(r=>r.type==='waitron'&&r.date===nextDate&&['authorised','submitted','approved'].includes(r.status)).reduce((s,r)=>s+(r.cash_float||0),0);
+  if(autoPetty>0){
+    document.getElementById('dPetty').value=autoPetty;
+    if(autoPetty!==(ded.petty||0)){
+      const rec2=sumDayRec&&sumDayRec.id?{id:sumDayRec.id}:{};
+      rec2.type='salesday'; rec2.date=date; rec2.status='approved';
+      rec2.sales={deductions:{...ded,petty:autoPetty}};
+      Store.save(rec2).then(s=>{ if(s) sumDayRec=s; }).catch(()=>{});
+    }
+  }
   const owed={}; rows.filter(r=>r.type==='sales' && r.sales && r.sales.settle==='Owed — deduct from salary').forEach(r=>{ const s=r.sales; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const rem=Math.max(0,(diff<0?-diff:0)-(s.explainedAmt||0)); if(rem>0) owed[r.runner||'?']=(owed[r.runner||'?']||0)+rem; });
   renderOwed(owed);
   renderSummary();
@@ -1737,8 +1791,19 @@ async function loadShortages(){
   recs.forEach(r=>{ const s=r.sales||{}; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const shortage=diff<0?-diff:0;
     if(shortage<=0) return;
     const explained=s.explainedAmt||0; const remaining=Math.max(0,shortage-explained);
-    shItems.push({date:r.date,name:r.runner||'?',shortage,explained,remaining,settle:s.settle||''});
+    shItems.push({date:r.date,name:r.runner||'?',shortage,explained,remaining,settle:s.settle||'',source:'drawer'});
     if(s.settle==='Owed — deduct from salary' && remaining>0) shOwedMap[r.runner||'?']=(shOwedMap[r.runner||'?']||0)+remaining;
+  });
+  // Include waitron petty cash shortages
+  rows.filter(r=>r.type==='waitron' && (r.date||'').slice(0,7)===month).forEach(r=>{
+    const spent=(r.purchases||[]).reduce((s,p)=>s+(p.amount||0),0);
+    const shouldReturn=(r.cash_float||0)-spent;
+    const variance=(r.actual_cash||0)-shouldReturn;
+    const shortage=variance<-0.005?-variance:0;
+    if(shortage<=0) return;
+    const ws=r.sales||{}; const explained=ws.explainedAmt||0; const remaining=Math.max(0,shortage-explained);
+    shItems.push({date:r.date,name:r.runner||'?',shortage,explained,remaining,settle:ws.settle||'',source:'petty'});
+    if(ws.settle==='Owed — deduct from salary' && remaining>0) shOwedMap[r.runner||'?']=(shOwedMap[r.runner||'?']||0)+remaining;
   });
   shItems.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   renderShortages();
@@ -1758,7 +1823,8 @@ function renderShortages(){
         const pend=(i.remaining>0 && !paid && !owed)?i.remaining:0;
         tShort+=i.shortage; tExp+=i.explained; tPaid+=paid; tOwed+=owed; tPend+=pend;
         const owedCell = owed>0 ? '<span class="rpt-neg"><b>'+M(owed)+'</b></span>' : (pend>0 ? '<span style="color:#b45309;">'+M(pend)+' ⏳ to review</span>' : '—');
-        return '<tr><td>'+esc(i.date)+'</td><td class="num rpt-neg">'+M(i.shortage)+'</td><td class="num">'+M(i.explained)+'</td><td class="num">'+M(paid)+'</td><td class="num">'+owedCell+'</td><td class="no-print"><button class="btn ghost small" onclick="verifyDay(\''+esc(i.date)+'\')">Verify day →</button></td></tr>';
+        const srcLabel=i.source==='petty'?' <span class="muted" style="font-size:10px;">(petty cash)</span>':'';
+        return '<tr><td>'+esc(i.date)+srcLabel+'</td><td class="num rpt-neg">'+M(i.shortage)+'</td><td class="num">'+M(i.explained)+'</td><td class="num">'+M(paid)+'</td><td class="num">'+owedCell+'</td><td class="no-print"><button class="btn ghost small" onclick="verifyDay(\''+esc(i.date)+'\')">Verify day →</button></td></tr>';
       }).join('');
       let badge;
       if(tOwed>0) badge='<span class="flag over" style="font-size:14px;">Still owes '+M(tOwed)+'</span>'+(tPend>0?' <span style="color:#b45309;font-size:12px;">+ '+M(tPend)+' to review</span>':'');
