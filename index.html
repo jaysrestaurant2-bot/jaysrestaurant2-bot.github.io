@@ -1445,7 +1445,22 @@ function applyWRole(){
   show('wBtnApprove', appEdit); show('wBtnReturn', appEdit); show('wBtnAddExp', wEdit);
   document.querySelectorAll('#waitronView .del').forEach(b=>{ b.style.display=b.disabled?'none':''; });
 }
-async function saveWaitron(){ try{ const s=await Store.save(gatherWaitron()); current=s||current; toast('✓ Saved'); }catch(e){ alert('Save failed: '+e.message); } }
+async function saveWaitron(){ try{ const s=await Store.save(gatherWaitron()); current=s||current; toast('✓ Saved'); if(current.type==='waitron'&&current.date&&current.cash_float>0&&['authorised','submitted','approved'].includes(current.status)){ syncPettyCashToSummary(current.date); } }catch(e){ alert('Save failed: '+e.message); } }
+async function syncPettyCashToSummary(floatDate){
+  /* Sum all authorised+ waitron floats for floatDate and push the total
+     into the previous day's salesday deductions.petty automatically. */
+  const prev=new Date(floatDate); prev.setDate(prev.getDate()-1);
+  const prevDate=prev.toISOString().slice(0,10);
+  let rows; try{ rows=await Store.list(); }catch(e){ return; }
+  const totalPetty=rows.filter(r=>r.type==='waitron'&&r.date===floatDate&&['authorised','submitted','approved'].includes(r.status)).reduce((s,r)=>s+(r.cash_float||0),0);
+  if(!totalPetty) return;
+  const dayRec=rows.find(r=>r.type==='salesday'&&r.date===prevDate)||null;
+  const rec=dayRec?{id:dayRec.id}:{};
+  rec.type='salesday'; rec.date=prevDate; rec.status='approved';
+  const existing=(dayRec&&dayRec.sales&&dayRec.sales.deductions)||{};
+  rec.sales={deductions:{...existing,petty:totalPetty}};
+  try{ await Store.save(rec); toast('✓ Petty cash '+M(totalPetty)+' auto-deducted from '+prevDate+' summary'); }catch(e){}
+}
 
 /* ========================= DAILY SALES CASH-UP ========================= */
 const DENOMS=[200,100,50,20,10,5,2,1,0.5];
