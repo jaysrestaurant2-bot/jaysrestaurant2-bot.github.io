@@ -503,7 +503,7 @@
       </div>
       <div class="recon" style="max-width:480px;margin-top:8px;">
         <div class="lbl">Opening float</div><div class="amt" id="sFloatEcho">M0.00</div>
-        <div class="lbl total">Total cash (float + counted)</div><div class="amt total" id="sTotalCash">M0.00</div>
+        <div class="lbl total">Total cash (counted)</div><div class="amt total" id="sTotalCash">M0.00</div>
       </div>
 
       <h2 style="margin-top:18px;font-size:15px;">2. Counted vs POS</h2>
@@ -568,13 +568,13 @@
     </div>
     <div class="card">
       <h2>Daily sales summary — <span id="sumDateLabel">—</span></h2>
-      <p class="hint">Every waitron's drawer for this date. <b>Total cash</b> = opening float + cash counted (what the waitron is holding). <b>Net cash</b> = total cash − tips. Shortfalls flag in red.</p>
+      <p class="hint">Every waitron's drawer for this date. <b>Total cash</b> = cash counted (what the waitron is holding, which already includes their opening float). <b>Net cash</b> = total cash − tips. Shortfalls flag in red.</p>
       <div id="sumDrawers" style="overflow-x:auto;"></div>
     </div>
     <div class="card">
       <h2>End of day</h2>
       <div class="recon">
-        <div class="lbl">Total cash (float + counted)</div><div class="amt" id="sumCash">M0.00</div>
+        <div class="lbl">Total cash (counted)</div><div class="amt" id="sumCash">M0.00</div>
         <div class="lbl">– Total tips</div><div class="amt" id="sumTips">M0.00</div>
         <div class="lbl total">Net cash</div><div class="amt total" id="sumNet">M0.00</div>
       </div>
@@ -736,15 +736,34 @@ function addBuy(b={}){
   tr._receiptFile = b.receiptFile||null;
   let method=b.method, amount=b.amount;
   if(method===undefined){ if((b.cash||0)>0){method='Cash';amount=b.cash;} else if((b.card||0)>0){method='Credit';amount=b.card;} else {method='Cash';amount='';} }
+  const hasSplit=!!(b.method2&&b.amount2);
   tr.innerHTML=`
     <td><input list="shopList" value="${esc(b.shop)}" placeholder="Shoprite"></td>
     <td><input value="${esc(b.items)}" placeholder="Stock"></td>
-    <td><select class="payMethod" onchange="recalc()">${payOptions(method)}</select></td>
-    <td class="num"><input type="number" step="0.01" value="${amount??''}" placeholder="0.00" oninput="recalc()"></td>
+    <td>
+      <select class="payMethod" onchange="recalc()">${payOptions(method)}</select>
+      <div class="splitExtra" style="display:${hasSplit?'flex':'none'};align-items:center;gap:4px;margin-top:4px;flex-wrap:wrap;">
+        <span style="font-size:11px;color:var(--muted);">+</span>
+        <select class="payMethod2" onchange="recalc()" style="font-size:12px;">${payOptions(b.method2||'Tyme Bank Card …6736')}</select>
+        <input class="splitAmt2" type="number" step="0.01" value="${b.amount2??''}" placeholder="0.00" oninput="recalc()" style="width:80px;font-size:12px;">
+      </div>
+    </td>
+    <td class="num">
+      <input class="buyAmt" type="number" step="0.01" value="${amount??''}" placeholder="0.00" oninput="recalc()">
+      <button type="button" onclick="toggleSplit(this)" class="btn ghost" style="font-size:10px;padding:1px 5px;margin-top:3px;opacity:0.7;">÷ split</button>
+    </td>
     <td class="rcptCell"></td>
     <td><select class="lineRunner" onchange="recalc()">${runnerOptions(b.runner||defaultRunner())}</select></td>
     <td class="no-print"><button class="del" onclick="this.closest('tr').remove();recalc()">×</button></td>`;
   document.getElementById('buyBody').appendChild(tr); renderRcptCell(tr); recalc(); applyRunnerLineLock();
+}
+function toggleSplit(btn){
+  const tr=btn.closest('tr');
+  const split=tr.querySelector('.splitExtra');
+  if(!split)return;
+  const on=split.style.display==='none'||!split.style.display;
+  split.style.display=on?'flex':'none';
+  if(!on){ const m2=tr.querySelector('.payMethod2'); if(m2) m2.selectedIndex=0; const a2=tr.querySelector('.splitAmt2'); if(a2) a2.value=''; recalc(); }
 }
 function renderRcptCell(tr){
   const cell=tr.querySelector('.rcptCell'); const f=tr._receiptFile;
@@ -821,10 +840,21 @@ function recalc(){
   document.querySelectorAll('#buyBody tr').forEach(tr=>{
     const r=((tr.querySelector('.lineRunner')||{}).value)||'(unassigned)';
     const m=((tr.querySelector('.payMethod')||{}).value)||'Cash';
-    const amt=parseFloat(tr.children[3].querySelector('input').value)||0;
+    const amt=parseFloat((tr.querySelector('.buyAmt')||tr.children[3]?.querySelector('input')||{}).value)||0;
     methodTotals[m]=(methodTotals[m]||0)+amt;
     if(m==='Cash'){ cash+=amt; ensure(r).cash+=amt; }
-    else { card+=amt; ensure(r).card+=amt; }   // card = non-cash bucket
+    else { card+=amt; ensure(r).card+=amt; }
+    // Split payment (second method on same bill)
+    const splitEl=tr.querySelector('.splitExtra');
+    if(splitEl&&splitEl.style.display!=='none'){
+      const m2=((tr.querySelector('.payMethod2')||{}).value)||'';
+      const amt2=parseFloat((tr.querySelector('.splitAmt2')||{}).value)||0;
+      if(m2&&amt2>0){
+        methodTotals[m2]=(methodTotals[m2]||0)+amt2;
+        if(m2==='Cash'){cash+=amt2;ensure(r).cash+=amt2;}
+        else{card+=amt2;ensure(r).card+=amt2;}
+      }
+    }
   });
   renderMethodTotals(methodTotals);
   document.querySelectorAll('#tripBody tr').forEach(tr=>{
@@ -1218,12 +1248,20 @@ function gather(){
   current.cash_float=floats.reduce((s,f)=>s+f.float,0);
   current.actual_cash=floats.reduce((s,f)=>s+f.returned,0);
   current.runner=floats.map(f=>f.runner).join(', ');
-  current.purchases=[...document.querySelectorAll('#buyBody tr')].map(tr=>({
-    shop:tr.children[0].querySelector('input').value, items:tr.children[1].querySelector('input').value,
-    method:((tr.querySelector('.payMethod')||{}).value)||'Cash',
-    amount:parseFloat(tr.children[3].querySelector('input').value)||0,
-    receiptFile: tr._receiptFile||null,
-    runner:(tr.querySelector('.lineRunner')||{}).value||'' }));
+  current.purchases=[...document.querySelectorAll('#buyBody tr')].map(tr=>{
+    const splitEl=tr.querySelector('.splitExtra');
+    const splitOn=splitEl&&splitEl.style.display!=='none';
+    return {
+      shop:tr.children[0].querySelector('input').value,
+      items:tr.children[1].querySelector('input').value,
+      method:((tr.querySelector('.payMethod')||{}).value)||'Cash',
+      amount:parseFloat((tr.querySelector('.buyAmt')||tr.children[3]?.querySelector('input')||{}).value)||0,
+      method2:splitOn?((tr.querySelector('.payMethod2')||{}).value||''):'',
+      amount2:splitOn?(parseFloat((tr.querySelector('.splitAmt2')||{}).value)||0):0,
+      receiptFile: tr._receiptFile||null,
+      runner:(tr.querySelector('.lineRunner')||{}).value||''
+    };
+  });
   current.trips=[...document.querySelectorAll('#tripBody tr')].map(tr=>({
     dest:tr.children[0].querySelector('input').value,
     fee:parseFloat(tr.children[1].querySelector('input').value)||0,
@@ -1457,19 +1495,21 @@ function reportSales(){
 }
 function reportSummary(){
   const date=document.getElementById('sumDate').value; const cols=SALES_PAY;
+  const nonCashCols=cols.filter(c=>c!=='Cash');
   let rows=[]; const gt={}; let gtTotal=0, gtTips=0, gtHand=0, gtNet=0;
   sumRecords.forEach(r=>{
     const t=drawerTotals(r);
     const shortage=t.diff<0?-t.diff:0; const remaining=Math.max(0,shortage-(r.sales&&r.sales.explainedAmt||0));
     const adjDiff=t.diff>=0?t.diff:-remaining;
-    const hand=(r.cash_float||0)+t.cash+t.paidShortage; const net=hand-t.tips;
-    rows.push([esc(r.runner||'')].concat(cols.map(c=>{const v=t.byType[c]||0;gt[c]=(gt[c]||0)+v;return M(v);}))
-      .concat([M(t.total),M(t.tips),M(hand),M(net),'<span class="'+(adjDiff<0?'rpt-neg':'rpt-pos')+'">'+(adjDiff>=0?'+ ':'– ')+M(Math.abs(adjDiff))+'</span>'+(t.paidShortage>0?' *paid*':'')+((r.sales&&r.sales.explainedAmt>0)?' (adj)':'')]));
+    const hand=t.cash+t.paidShortage; const net=hand-t.tips;
+    const nonCashVals=nonCashCols.map(c=>{const v=t.byType[c]||0;gt[c]=(gt[c]||0)+v;return M(v);});
+    rows.push([esc(r.runner||''),M(hand),M(t.tips),M(net)].concat(nonCashVals)
+      .concat([M(t.total),'<span class="'+(adjDiff<0?'rpt-neg':'rpt-pos')+'">'+(adjDiff>=0?'+ ':'– ')+M(Math.abs(adjDiff))+'</span>'+(t.paidShortage>0?' *paid*':'')+((r.sales&&r.sales.explainedAmt>0)?' (adj)':'')]));
     gtTotal+=t.total; gtTips+=t.tips; gtHand+=hand; gtNet+=net;
   });
-  rows.push(['GRAND TOTAL'].concat(cols.map(c=>M(gt[c]||0))).concat([M(gtTotal),M(gtTips),M(gtHand),M(gtNet),'','']));
+  rows.push(['GRAND TOTAL',M(gtHand),M(gtTips),M(gtNet)].concat(nonCashCols.map(c=>M(gt[c]||0))).concat([M(gtTotal),'']));
   let h=rptHead('Daily Sales Summary',date||'');
-  h+='<h3>Drawers</h3>'+rptTable(['Employee'].concat(cols).concat(['Total','Tips','Total cash','Net cash','Adj. diff']),rows);
+  h+='<h3>Drawers</h3>'+rptTable(['Employee','Cash','Tips','Net cash'].concat(nonCashCols).concat(['Total','Adj. diff']),rows);
   // End of day section
   const fixedDed=[{id:'dDeposit',lbl:'Deposit'},{id:'dPetty',lbl:'Petty cash'},{id:'dCab',lbl:'Cab'},{id:'dFuel',lbl:'Fuel'},{id:'dBread',lbl:'Bread'},{id:'dSavings',lbl:'Savings'}];
   let dedTotal=0;
@@ -1478,7 +1518,7 @@ function reportSummary(){
   h+='<h3>End of day</h3>';
   h+='<table style="min-width:280px;border-collapse:collapse;">'
     +'<tbody>'
-    +'<tr style="border-bottom:1px solid #ccc;"><td style="padding:3px 8px;">Total cash (float + counted + paid shortages)</td><td class="num" style="padding:3px 6px;"><b>'+M(gtHand)+'</b></td></tr>'
+    +'<tr style="border-bottom:1px solid #ccc;"><td style="padding:3px 8px;">Total cash (counted + paid shortages)</td><td class="num" style="padding:3px 6px;"><b>'+M(gtHand)+'</b></td></tr>'
     +(gtTips>0?'<tr><td style="padding:2px 8px;">– Tips</td><td class="num" style="padding:2px 6px;">'+M(gtTips)+'</td></tr>':'')
     +'<tr style="border-top:1px solid #ccc;border-bottom:1px solid #ccc;"><td style="padding:3px 8px;"><b>Net cash</b></td><td class="num" style="padding:3px 6px;"><b>'+M(gtNet)+'</b></td></tr>'
     +dedLines
@@ -1619,7 +1659,7 @@ function fillWaitron(r){
   document.getElementById('wApprover').value=r.approver||'';
   document.getElementById('wApproverComments').value=r.approver_comments||'';
   const sel=document.getElementById('wPerson');
-  let names=waitronNames(); if(r.runner && !names.includes(r.runner)) names=[r.runner].concat(names);
+  let names=waitronNames().filter(n=>n.toLowerCase()!=='waitron'); if(r.runner && !names.includes(r.runner)) names=[r.runner].concat(names);
   const wDef=r.runner||(ME.role==='waitron'?ME.name:'')||names[0]||'';
   sel.innerHTML=names.map(n=>'<option'+(n===wDef?' selected':'')+'>'+esc(n)+'</option>').join('');
   const ws=r.sales||{};
@@ -1793,7 +1833,7 @@ function fillSales(r){
   document.getElementById('sApprover').value=r.approver||'';
   document.getElementById('sApproverComments').value=r.approver_comments||'';
   const sel=document.getElementById('sPerson');
-  let names=WAITRON_NAMES.slice();
+  let names=WAITRON_NAMES.filter(n=>n.toLowerCase()!=='waitron');
   if(ME.role==='waitron' && ME.name && !names.includes(ME.name)) names.unshift(ME.name);
   if(r.runner && !names.includes(r.runner)) names.unshift(r.runner);
   const sDef=r.runner||(ME.role==='waitron'?ME.name:'')||names[0]||'';
@@ -1804,6 +1844,18 @@ function fillSales(r){
   const pb=document.getElementById('payBody'); pb.innerHTML=''; const payMap={}; (s.pay||[]).forEach(p=>payMap[p.type]=p);
   SALES_PAY.forEach(t=>{ const p=payMap[t]||{}; const tr=document.createElement('tr'); tr.dataset.type=t;
     if(t==='Cash'){ tr.innerHTML='<td>Cash</td><td class="num payCountedCell">M0.00</td><td class="num"><input class="payExpected" type="number" step="0.01" value="'+(p.expected??'')+'" placeholder="0.00" oninput="recalcS()"></td><td class="num payDiff">M0.00</td>'; }
+    else if(t==='M-Pesa'||t==='ECOCASH'){
+      const lines=Array.isArray(p.lines)&&p.lines.length?p.lines:[null];
+      const lRows=lines.map(v=>'<tr><td><input class="mLine" type="number" step="0.01" value="'+(v??'')+'" placeholder="0.00" oninput="recalcS()" style="width:90px;"></td><td><button type="button" class="del" onclick="this.closest(\'tr\').remove();recalcS()">×</button></td></tr>').join('');
+      tr.innerHTML='<td>'+esc(t)+'</td>'
+        +'<td class="num"><div class="mLinesWrap">'
+          +'<table style="border-collapse:collapse;"><tbody class="mLinesBody">'+lRows+'</tbody></table>'
+          +'<button type="button" class="btn ghost small" onclick="addMLine(this)" style="font-size:10px;padding:1px 5px;margin-top:3px;">+ line</button>'
+          +'<div class="mTotal" style="font-weight:700;font-size:12px;margin-top:2px;text-align:right;">M0.00</div>'
+        +'</div></td>'
+        +'<td class="num"><input class="payExpected" type="number" step="0.01" value="'+(p.expected??'')+'" placeholder="0.00" oninput="recalcS()"></td>'
+        +'<td class="num payDiff">M0.00</td>';
+    }
     else { tr.innerHTML='<td>'+esc(t)+'</td><td class="num"><input class="payCounted" type="number" step="0.01" value="'+(p.counted??'')+'" placeholder="0.00" oninput="recalcS()"></td><td class="num"><input class="payExpected" type="number" step="0.01" value="'+(p.expected??'')+'" placeholder="0.00" oninput="recalcS()"></td><td class="num payDiff">M0.00</td>'; }
     pb.appendChild(tr); });
   document.getElementById('sExplain').value=s.explanation||'';
@@ -1813,14 +1865,28 @@ function fillSales(r){
   renderSStatus(); applySRole(); recalcS();
 }
 function cashCounted(){ let sum=0; document.querySelectorAll('#denomBody tr').forEach(tr=>{ sum+=(parseFloat(tr.dataset.val)||0)*(parseFloat(tr.querySelector('input').value)||0); }); return sum; }
+function addMLine(btn){
+  const tbody=btn.closest('.mLinesWrap').querySelector('.mLinesBody');
+  const tr=document.createElement('tr');
+  tr.innerHTML='<td><input class="mLine" type="number" step="0.01" placeholder="0.00" oninput="recalcS()" style="width:90px;"></td><td><button type="button" class="del" onclick="this.closest(\'tr\').remove();recalcS()">×</button></td>';
+  tbody.appendChild(tr); tr.querySelector('input').focus();
+}
 function recalcS(){
   document.querySelectorAll('#denomBody tr').forEach(tr=>{ const v=parseFloat(tr.dataset.val)||0; const c=parseFloat(tr.querySelector('input').value)||0; tr.querySelector('.denomAmt').textContent=M(v*c); });
   const cc=cashCounted(); set('sCashCounted',M(cc));
   let totalDiff=0;
   document.querySelectorAll('#payBody tr').forEach(tr=>{
     const type=tr.dataset.type;
-    const counted = type==='Cash' ? cc : (parseFloat((tr.querySelector('.payCounted')||{}).value)||0);
-    if(type==='Cash'){ const cell=tr.querySelector('.payCountedCell'); if(cell) cell.textContent=M(cc); }
+    let counted;
+    if(type==='Cash'){
+      counted=cc;
+      const cell=tr.querySelector('.payCountedCell'); if(cell) cell.textContent=M(cc);
+    } else if((type==='M-Pesa'||type==='ECOCASH')&&tr.querySelector('.mLine')){
+      counted=[...tr.querySelectorAll('.mLine')].reduce((s,i)=>s+(parseFloat(i.value)||0),0);
+      const mt=tr.querySelector('.mTotal'); if(mt) mt.textContent=M(counted);
+    } else {
+      counted=parseFloat((tr.querySelector('.payCounted')||{}).value)||0;
+    }
     const expected = parseFloat((tr.querySelector('.payExpected')||{}).value)||0;
     const diff=counted-expected; totalDiff+=diff;
     const d=tr.querySelector('.payDiff'); d.textContent=(diff>=0?'+ ':'– ')+M(Math.abs(diff));
@@ -1835,9 +1901,9 @@ function recalcS(){
   const rem=document.getElementById('sRemaining'); if(rem) rem.textContent=M(remaining);
   const tips=parseFloat((document.getElementById('sTips')||{}).value)||0;
   const floatV=parseFloat((document.getElementById('sOpening')||{}).value)||0;
-  const ncEl=document.getElementById('sNetCash'); if(ncEl) ncEl.textContent=M((floatV+cc)-tips);
+  const ncEl=document.getElementById('sNetCash'); if(ncEl) ncEl.textContent=M(cc-tips);
   const feEl=document.getElementById('sFloatEcho'); if(feEl) feEl.textContent=M(floatV);
-  const tcEl=document.getElementById('sTotalCash'); if(tcEl) tcEl.textContent=M(floatV+cc);
+  const tcEl=document.getElementById('sTotalCash'); if(tcEl) tcEl.textContent=M(cc);
 }
 function gatherSales(){
   current.type='sales';
@@ -1846,9 +1912,18 @@ function gatherSales(){
   current.cash_float=parseFloat(document.getElementById('sOpening').value)||0;
   const denoms={}; document.querySelectorAll('#denomBody tr').forEach(tr=>{ const c=parseFloat(tr.querySelector('input').value)||0; if(c) denoms[tr.dataset.val]=c; });
   const cc=cashCounted();
-  const pay=[...document.querySelectorAll('#payBody tr')].map(tr=>({ type:tr.dataset.type,
-    counted: tr.dataset.type==='Cash' ? cc : (parseFloat((tr.querySelector('.payCounted')||{}).value)||0),
-    expected: parseFloat((tr.querySelector('.payExpected')||{}).value)||0 }));
+  const pay=[...document.querySelectorAll('#payBody tr')].map(tr=>{
+    const type=tr.dataset.type;
+    let counted, lines;
+    if(type==='Cash'){ counted=cc; }
+    else if((type==='M-Pesa'||type==='ECOCASH')&&tr.querySelector('.mLine')){
+      const vals=[...tr.querySelectorAll('.mLine')].map(i=>parseFloat(i.value)||0);
+      lines=vals.filter(v=>v>0);
+      counted=vals.reduce((s,v)=>s+v,0);
+    } else { counted=parseFloat((tr.querySelector('.payCounted')||{}).value)||0; }
+    const expected=parseFloat((tr.querySelector('.payExpected')||{}).value)||0;
+    return lines!==undefined ? {type,counted,expected,lines} : {type,counted,expected};
+  });
   const prevRcpt=(current.sales&&current.sales.shortageReceipt)||null;
   const prevRcpts=Array.isArray(current.sales&&current.sales.shortageReceipts)?current.sales.shortageReceipts:[];
   current.sales={ denoms, tips:parseFloat(document.getElementById('sTips').value)||0, pay,
@@ -2018,20 +2093,34 @@ function renderSummary(){
   const el=document.getElementById('sumDrawers');
   if(!sumRecords.length){ el.innerHTML='<span class="muted">No cash-ups for this date yet.</span>'; recalcSummary(); return; }
   const cols=SALES_PAY;
-  let head='<tr><th>Employee</th>'+cols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Tips</th><th class="num">Total cash</th><th class="num">Net cash</th><th class="num">Difference</th><th>Status</th></tr>';
+  const nonCashCols=cols.filter(c=>c!=='Cash');
+  let head='<tr><th>Employee</th><th class="num">Cash</th><th class="num">Tips</th><th class="num">Net cash</th>'+nonCashCols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Difference</th><th>Status</th></tr>';
   let body=''; const gt={}; let gtTotal=0, gtDiff=0, gtTips=0, gtNet=0, gtHand=0;
-  sumRecords.forEach(r=>{ const t=drawerTotals(r); const hand=(r.cash_float||0)+t.cash+t.paidShortage; const net=hand-t.tips;
+  sumRecords.forEach(r=>{ const t=drawerTotals(r); const hand=t.cash+t.paidShortage; const net=hand-t.tips;
     const shortage=t.diff<0?-t.diff:0; const remaining=Math.max(0,shortage-(r.sales&&r.sales.explainedAmt||0)); const adjDiff=t.diff>=0?t.diff:-remaining;
-    body+='<tr><td>'+esc(r.runner||'—')+'</td>'+cols.map(c=>{ const v=t.byType[c]||0; gt[c]=(gt[c]||0)+v; return '<td class="num">'+M(v)+'</td>'; }).join('')
-      +'<td class="num">'+M(t.total)+'</td><td class="num">'+M(t.tips)+'</td><td class="num"><b>'+M(hand)+'</b></td><td class="num"><b>'+M(net)+'</b></td><td class="num variance '+(adjDiff<0?'short':'ok')+'">'+(adjDiff>=0?'+ ':'– ')+M(Math.abs(adjDiff))+(t.paidShortage>0?' <span class="muted" style="font-size:10px;">(+paid)</span>':'')+(r.sales&&r.sales.explainedAmt>0?' <span class="muted" style="font-size:10px;">(adj)</span>':'')+'</td><td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
+    body+='<tr><td>'+esc(r.runner||'—')+'</td>'
+      +'<td class="num"><b>'+M(hand)+'</b></td>'
+      +'<td class="num">'+M(t.tips)+'</td>'
+      +'<td class="num"><b>'+M(net)+'</b></td>'
+      +nonCashCols.map(c=>{ const v=t.byType[c]||0; gt[c]=(gt[c]||0)+v; return '<td class="num">'+M(v)+'</td>'; }).join('')
+      +'<td class="num">'+M(t.total)+'</td>'
+      +'<td class="num variance '+(adjDiff<0?'short':'ok')+'">'+(adjDiff>=0?'+ ':'– ')+M(Math.abs(adjDiff))+(t.paidShortage>0?' <span class="muted" style="font-size:10px;">(+paid)</span>':'')+(r.sales&&r.sales.explainedAmt>0?' <span class="muted" style="font-size:10px;">(adj)</span>':'')+'</td>'
+      +'<td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
+    gt['Cash']=(gt['Cash']||0)+hand;
     gtTotal+=t.total; gtDiff+=t.diff; gtTips+=t.tips; gtNet+=net; gtHand+=hand; });
-  let foot='<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Grand total</td>'+cols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')+'<td class="num">'+M(gtTotal)+'</td><td class="num">'+M(gtTips)+'</td><td class="num">'+M(gtHand)+'</td><td class="num">'+M(gtNet)+'</td><td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
+  let foot='<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Grand total</td>'
+    +'<td class="num">'+M(gtHand)+'</td>'
+    +'<td class="num">'+M(gtTips)+'</td>'
+    +'<td class="num">'+M(gtNet)+'</td>'
+    +nonCashCols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')
+    +'<td class="num">'+M(gtTotal)+'</td>'
+    +'<td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
   el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>';
   recalcSummary();
 }
 function recalcSummary(){
   let totalCash=0, totalTips=0;
-  sumRecords.forEach(r=>{ const t=drawerTotals(r); totalCash+=(r.cash_float||0)+t.cash+t.paidShortage; totalTips+=t.tips; });
+  sumRecords.forEach(r=>{ const t=drawerTotals(r); totalCash+=t.cash+t.paidShortage; totalTips+=t.tips; });
   const net=totalCash-totalTips;
   const fixedDed=['dDeposit','dPetty','dCab','dFuel','dBread','dSavings'].reduce((s,id)=>s+snum(id),0);
   const otherDedTotal=otherDeds.reduce((s,d)=>s+(parseFloat(d.amount)||0),0);
@@ -2181,7 +2270,7 @@ function reportDailySummaryFull(date,salesRecs,dayRec,poRecs){
     h+='<h3>Sales cash-up</h3>';
     const cols=SALES_PAY; const gt={}; let gtHand=0,gtTips=0,gtDiff=0;
     const bdy=salesRecs.map(r=>{
-      const t=drawerTotals(r); const hand=(r.cash_float||0)+t.cash; const net=hand-t.tips;
+      const t=drawerTotals(r); const hand=t.cash; const net=hand-t.tips;
       cols.forEach(c=>{gt[c]=(gt[c]||0)+(t.byType[c]||0);}); gtHand+=hand; gtTips+=t.tips; gtDiff+=t.diff;
       return [esc(r.runner||'—')].concat(cols.map(c=>M(t.byType[c]||0))).concat([M(hand),M(t.tips),M(net),'<span class="'+(t.diff<0?'rpt-neg':'rpt-pos')+'">'+M(t.diff)+'</span>',esc(r.status)]);
     });
@@ -2242,7 +2331,7 @@ function reportMonthlyCash(month,rows){
     let srows=[],stot=0,stipstot=0,snettot=0,sdedtot=0;
     allDays.forEach(d=>{
       const recs=salesByDay[d]||[]; if(!recs.length)return;
-      let hand=0,tips=0; recs.forEach(r=>{const t=drawerTotals(r);hand+=(r.cash_float||0)+t.cash;tips+=t.tips;});
+      let hand=0,tips=0; recs.forEach(r=>{const t=drawerTotals(r);hand+=t.cash;tips+=t.tips;});
       const net=hand-tips; const dr=dayRecs[d];
       const ded=dr&&dr.sales&&dr.sales.deductions?['deposit','petty','cab','fuel','bread','savings'].reduce((s,k)=>s+(dr.sales.deductions[k]||0),0):null;
       stot+=hand; stipstot+=tips; snettot+=net; if(ded!=null)sdedtot+=ded;
