@@ -1786,22 +1786,57 @@ function applyWRole(){
   document.querySelectorAll('#waitronView .del').forEach(b=>{ b.style.display=b.disabled?'none':''; });
 }
 async function saveWaitron(){ try{ const s=await Store.save(gatherWaitron()); current=s||current; toast('✓ Saved'); if(current.type==='waitron'&&current.date&&current.cash_float>0&&['authorised','submitted','approved'].includes(current.status)){ syncPettyCashToSummary(current.date); } }catch(e){ alert('Save failed: '+e.message); } }
+/* Shift a YYYY-MM-DD date string by delta days (safe local-time arithmetic). */
+function shiftDay(dateStr,delta){
+  const [y,m,d]=dateStr.split('-').map(Number);
+  const dt=new Date(y,m-1,d+delta);
+  return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+}
 async function syncPettyCashToSummary(floatDate){
-  /* Sum all authorised+ waitron floats for floatDate and push the total
-     into the SAME day's salesday deductions.petty automatically.
-     (The float is given from the previous day's cash, but is recorded
-     as a deduction in the same-day summary alongside the cash-ups.) */
+  /* Petty cash for day D comes from (D-1)'s cash.
+     So waitron floats dated D are deducted from (D-1)'s sales summary. */
   const d=(floatDate||'').slice(0,10);
   if(!d) return;
+  const summaryDate=shiftDay(d,-1);
   let rows; try{ rows=await Store.list(); }catch(e){ return; }
   const totalPetty=rows.filter(r=>r.type==='waitron'&&(r.date||'').slice(0,10)===d&&['authorised','submitted','approved'].includes(r.status)).reduce((s,r)=>s+(r.cash_float||0),0);
   if(!totalPetty) return;
-  const dayRec=rows.find(r=>r.type==='salesday'&&(r.date||'').slice(0,10)===d)||null;
+  const dayRec=rows.find(r=>r.type==='salesday'&&(r.date||'').slice(0,10)===summaryDate)||null;
   const rec=dayRec?{id:dayRec.id}:{};
-  rec.type='salesday'; rec.date=d; rec.status='approved';
+  rec.type='salesday'; rec.date=summaryDate; rec.status='approved';
   const existing=(dayRec&&dayRec.sales&&dayRec.sales.deductions)||{};
+  if(totalPetty===(existing.petty||0)) return;
   rec.sales={deductions:{...existing,petty:totalPetty}};
-  try{ await Store.save(rec); toast('✓ Petty cash '+M(totalPetty)+' synced to '+d+' summary'); }catch(e){}
+  try{ await Store.save(rec); toast('✓ Petty cash '+M(totalPetty)+' synced to '+summaryDate+' summary'); }catch(e){}
+}
+/* Retroactive migration: fix all existing records to use the D→(D-1) convention. */
+async function migrateAllPettySyncs(){
+  let rows; try{ rows=await Store.list(); }catch(e){ return; }
+  const floatsByDate={};
+  rows.filter(r=>r.type==='waitron'&&(r.cash_float||0)>0&&['authorised','submitted','approved'].includes(r.status))
+      .forEach(r=>{ const d=(r.date||'').slice(0,10); if(d) floatsByDate[d]=(floatsByDate[d]||0)+(r.cash_float||0); });
+  const dates=Object.keys(floatsByDate); if(!dates.length) return;
+  const saves=[];
+  dates.forEach(d=>{
+    const total=floatsByDate[d];
+    const sumDate=shiftDay(d,-1);
+    // Set D-1 salesday petty
+    const prevRec=rows.find(r=>r.type==='salesday'&&(r.date||'').slice(0,10)===sumDate)||null;
+    const prevDed=(prevRec&&prevRec.sales&&prevRec.sales.deductions)||{};
+    if(total!==(prevDed.petty||0)){
+      const rec=prevRec?{id:prevRec.id}:{}; rec.type='salesday'; rec.date=sumDate; rec.status='approved';
+      rec.sales={deductions:{...prevDed,petty:total}}; saves.push(Store.save(rec));
+    }
+    // Clear D salesday petty if it was set by old same-day auto-sync (i.e. equals the float total)
+    const sameRec=rows.find(r=>r.type==='salesday'&&(r.date||'').slice(0,10)===d)||null;
+    const sameDed=(sameRec&&sameRec.sales&&sameRec.sales.deductions)||{};
+    if(sameRec&&(sameDed.petty||0)===total){
+      const rec={id:sameRec.id,type:'salesday',date:d,status:'approved'};
+      rec.sales={deductions:{...sameDed,petty:0}}; saves.push(Store.save(rec));
+    }
+  });
+  if(!saves.length) return;
+  try{ await Promise.all(saves); toast('✓ Petty cash history corrected for '+saves.length/2|0+' day(s)'); }catch(e){}
 }
 
 /* ========================= DAILY SALES CASH-UP ========================= */
@@ -2010,13 +2045,14 @@ function removeShortRcpt(i){
 /* ========================= DAILY SALES SUMMARY (roll-up) ========================= */
 let sumRecords=[], sumDayRec=null, otherDeds=[];
 let pendingCarryForwards=[];
-/* Helper: find same-day waitron floats, update the dPetty field, and silently save if changed.
+/* Helper: find NEXT-day waitron floats (floats for D+1 come from D's cash), update dPetty, silently save.
    Can be called with a pre-fetched rows array (from loadSummary) or without (manual button). */
 async function syncPettyToSummaryUI(date, rows, ded){
   if(!date) return;
   if(!rows){ try{ rows=await Store.list(); }catch(e){ return; } }
   if(!ded){ const dr=rows.find(r=>r.type==='salesday'&&(r.date||'').slice(0,10)===date); ded=(dr&&dr.sales&&dr.sales.deductions)||{}; }
-  const petty=rows.filter(r=>r.type==='waitron'&&(r.date||'').slice(0,10)===date&&['authorised','submitted','approved'].includes(r.status)).reduce((s,r)=>s+(r.cash_float||0),0);
+  const nextD=shiftDay(date,+1); // floats for (date+1) were funded from date's cash
+  const petty=rows.filter(r=>r.type==='waitron'&&(r.date||'').slice(0,10)===nextD&&['authorised','submitted','approved'].includes(r.status)).reduce((s,r)=>s+(r.cash_float||0),0);
   if(petty>0){
     document.getElementById('dPetty').value=petty;
     recalcSummary();
@@ -2049,10 +2085,13 @@ function renderOtherDeds(){
     +'</div></div>'
   ).join('');
 }
+let _pettyMigrated=false;
 function openSalesSummary(){
   ['listView','detailView','teamView','waitronView','salesView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
   document.getElementById('salesSummaryView').classList.remove('hidden');
   const d=document.getElementById('sumDate'); if(!d.value) d.value=new Date().toISOString().slice(0,10);
+  // Run retroactive petty-sync migration once per session (fixes all historical dates)
+  if(!_pettyMigrated){ _pettyMigrated=true; migrateAllPettySyncs(); }
   loadSummary();
 }
 async function loadSummary(){
@@ -2067,7 +2106,7 @@ async function loadSummary(){
   document.getElementById('dBread').value=ded.bread||''; document.getElementById('dSavings').value=ded.savings||'';
   otherDeds=Array.isArray(ded.other)?ded.other.map(d=>({label:d.label||'',amount:d.amount||0})):[];
   renderOtherDeds();
-  // Auto-compute petty cash from waitron floats on the same date
+  // Auto-compute petty cash from next-day waitron floats (D+1 floats were funded from D's cash)
   await syncPettyToSummaryUI(date, rows, ded);
   const owed={}; rows.filter(r=>r.type==='sales' && r.sales && r.sales.settle==='Owed — deduct from salary').forEach(r=>{ const s=r.sales; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const rem=Math.max(0,(diff<0?-diff:0)-(s.explainedAmt||0)); if(rem>0) owed[r.runner||'?']=(owed[r.runner||'?']||0)+rem; });
   renderOwed(owed);
