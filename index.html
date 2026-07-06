@@ -581,7 +581,7 @@
       <p class="hint" style="margin-top:14px;">Deductions taken from the cash before banking:</p>
       <div class="grid g4">
         <div><label>Deposit (M)</label><input type="number" step="0.01" id="dDeposit" oninput="recalcSummary()"></div>
-        <div><label>Petty cash (M)</label><input type="number" step="0.01" id="dPetty" oninput="recalcSummary()"></div>
+        <div><label>Petty cash (M) <span class="muted" style="font-size:11px;">— auto from waitron floats</span></label><input type="number" step="0.01" id="dPetty" readonly style="background:var(--surface,#f3f4f6);color:var(--ink);border-style:dashed;cursor:default;" title="Auto-calculated from next-day waitron petty cash records"></div>
         <div><label>Cab (M)</label><input type="number" step="0.01" id="dCab" oninput="recalcSummary()"></div>
         <div><label>Fuel (M)</label><input type="number" step="0.01" id="dFuel" oninput="recalcSummary()"></div>
         <div><label>Bread (M)</label><input type="number" step="0.01" id="dBread" oninput="recalcSummary()"></div>
