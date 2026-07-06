@@ -1659,7 +1659,7 @@ function fillWaitron(r){
   document.getElementById('wApprover').value=r.approver||'';
   document.getElementById('wApproverComments').value=r.approver_comments||'';
   const sel=document.getElementById('wPerson');
-  let names=waitronNames().filter(n=>n.toLowerCase()!=='waitron'); if(r.runner && !names.includes(r.runner)) names=[r.runner].concat(names);
+  let names=WAITRON_NAMES.filter(n=>n.toLowerCase()!=='waitron'); if(r.runner && r.runner.toLowerCase()!=='waitron' && !names.includes(r.runner)) names=[r.runner].concat(names);
   const wDef=r.runner||(ME.role==='waitron'?ME.name:'')||names[0]||'';
   sel.innerHTML=names.map(n=>'<option'+(n===wDef?' selected':'')+'>'+esc(n)+'</option>').join('');
   const ws=r.sales||{};
@@ -1834,8 +1834,8 @@ function fillSales(r){
   document.getElementById('sApproverComments').value=r.approver_comments||'';
   const sel=document.getElementById('sPerson');
   let names=WAITRON_NAMES.filter(n=>n.toLowerCase()!=='waitron');
-  if(ME.role==='waitron' && ME.name && !names.includes(ME.name)) names.unshift(ME.name);
-  if(r.runner && !names.includes(r.runner)) names.unshift(r.runner);
+  if(ME.role==='waitron' && ME.name && ME.name.toLowerCase()!=='waitron' && !names.includes(ME.name)) names.unshift(ME.name);
+  if(r.runner && r.runner.toLowerCase()!=='waitron' && !names.includes(r.runner)) names.unshift(r.runner);
   const sDef=r.runner||(ME.role==='waitron'?ME.name:'')||names[0]||'';
   sel.innerHTML=names.map(n=>'<option'+(n===sDef?' selected':'')+'>'+esc(n)+'</option>').join('');
   const db=document.getElementById('denomBody'); db.innerHTML='';
