@@ -515,6 +515,13 @@
       </table>
       </div>
 
+      <div style="margin-top:16px;">
+        <h2 style="font-size:15px;margin:0 0 4px;">2b. Payment corrections <span class="muted" style="font-size:11px;font-weight:normal;">— manager / accountant</span></h2>
+        <p class="hint" style="margin-top:0;">Record any payment type mistakes (e.g. Tyme Bank charged as Cash). Add as many rows as needed. Adjusted totals flow to the daily summary and Quickbooks.</p>
+        <div id="sCorrList" style="margin-bottom:6px;"></div>
+        <button class="btn ghost small no-print" id="sBtnAddCorr" onclick="addSCorr()" style="margin-top:4px;">+ Add correction</button>
+      </div>
+
       <h2 style="margin-top:18px;font-size:15px;">3. If short — explain</h2>
       <div>
         <label>Explanation (e.g. charged on M-Pesa instead of cash)</label>
@@ -570,12 +577,6 @@
       <h2>Daily sales summary — <span id="sumDateLabel">—</span></h2>
       <p class="hint">Every waitron's drawer for this date. <b>Total cash</b> = cash counted (what the waitron is holding, which already includes their opening float). <b>Net cash</b> = total cash − tips. Shortfalls flag in red.</p>
       <div id="sumDrawers" style="overflow-x:auto;"></div>
-    </div>
-    <div class="card" id="correctionsCard">
-      <h2>Payment corrections <span class="muted" style="font-size:12px;font-weight:normal;">— record mischarges &amp; reallocations</span></h2>
-      <p class="hint">Use this when a waitron charged the wrong payment method (e.g. Tyme Bank recorded as Cash). The corrected totals replace the raw totals for Quickbooks.</p>
-      <div id="correctionsList"></div>
-      <button class="btn ghost small no-print" onclick="addCorrectionRow()" style="margin-top:6px;">+ Add correction</button>
     </div>
     <div class="card">
       <h2>End of day</h2>
@@ -1902,6 +1903,8 @@ function fillSales(r){
   document.getElementById('sExplain').value=s.explanation||'';
   document.getElementById('sSettle').value=s.settle||'';
   document.getElementById('sExplainedAmt').value=s.explainedAmt||'';
+  salesCorrs=Array.isArray(s.corrections)?s.corrections:[];
+  renderSCorr();
   renderShortRcpt();
   renderSStatus(); applySRole(); recalcS();
 }
@@ -1972,7 +1975,8 @@ function gatherSales(){
     shortageReceipt:prevRcpt,
     shortageReceipts:prevRcpts,
     settle:document.getElementById('sSettle').value,
-    explainedAmt:parseFloat(document.getElementById('sExplainedAmt').value)||0 };
+    explainedAmt:parseFloat(document.getElementById('sExplainedAmt').value)||0,
+    corrections:gatherSCorr() };
   current.approver=document.getElementById('sApprover').value;
   current.approver_comments=document.getElementById('sApproverComments').value;
   return current;
@@ -2009,6 +2013,9 @@ function applySRole(){
   const explainEdit = countedEdit || mgrEdit;   // waitron OR manager can explain a shortage
   ['sExplain','sShortRcptFile'].forEach(id=>{ const e=document.getElementById(id); if(e) e.disabled=!explainEdit; });
   ['sSettle','sExplainedAmt'].forEach(id=>{ const e=document.getElementById(id); if(e) e.disabled=!mgrEdit; });  // settlement is manager-only
+  // corrections are manager-only
+  document.querySelectorAll('#sCorrList input,#sCorrList select,#sCorrList .scDelBtn').forEach(e=>e.disabled=!mgrEdit);
+  const addCorrBtn=document.getElementById('sBtnAddCorr'); if(addCorrBtn) addCorrBtn.disabled=!mgrEdit;
   show('sBtnSubmit', role==='waitron' && (st==='draft'||st==='returned'));
   show('sBtnApprove', mgrEdit); show('sBtnReturn', mgrEdit);
 }
@@ -2049,7 +2056,8 @@ function removeShortRcpt(i){
 }
 
 /* ========================= DAILY SALES SUMMARY (roll-up) ========================= */
-let sumRecords=[], sumDayRec=null, otherDeds=[], sumCorrections=[];
+let sumRecords=[], sumDayRec=null, otherDeds=[];
+let salesCorrs=[];
 let pendingCarryForwards=[];
 /* Helper: find NEXT-day waitron floats (floats for D+1 come from D's cash), update dPetty, silently save.
    Can be called with a pre-fetched rows array (from loadSummary) or without (manual button). */
@@ -2112,8 +2120,6 @@ async function loadSummary(){
   document.getElementById('dBread').value=ded.bread||''; document.getElementById('dSavings').value=ded.savings||'';
   otherDeds=Array.isArray(ded.other)?ded.other.map(d=>({label:d.label||'',amount:d.amount||0})):[];
   renderOtherDeds();
-  sumCorrections=Array.isArray(sumDayRec&&sumDayRec.sales&&sumDayRec.sales.corrections)?sumDayRec.sales.corrections:[];
-  renderCorrections();
   // Auto-compute petty cash from next-day waitron floats (D+1 floats were funded from D's cash)
   await syncPettyToSummaryUI(date, rows, ded);
   const owed={}; rows.filter(r=>r.type==='sales' && r.sales && r.sales.settle==='Owed — deduct from salary').forEach(r=>{ const s=r.sales; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const rem=Math.max(0,(diff<0?-diff:0)-(s.explainedAmt||0)); if(rem>0) owed[r.runner||'?']=(owed[r.runner||'?']||0)+rem; });
@@ -2128,12 +2134,10 @@ function renderOwed(owed){
     +keys.map(k=>{tot+=owed[k];return '<tr><td>'+esc(k)+'</td><td class="num rpt-neg">'+M(owed[k])+'</td></tr>';}).join('')
     +'<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Total owed</td><td class="num">'+M(tot)+'</td></tr></tbody></table>';
 }
-function renderCorrections(){
-  const el=document.getElementById('correctionsList'); if(!el) return;
-  if(!sumCorrections.length){ el.innerHTML='<span class="muted" style="font-size:13px;">No corrections yet.</span>'; return; }
-  const payOpts=SALES_PAY.map(p=>'<option>'+esc(p)+'</option>').join('');
+function renderSCorr(){
+  const el=document.getElementById('sCorrList'); if(!el) return;
+  if(!salesCorrs.length){ el.innerHTML='<span class="muted" style="font-size:13px;">No corrections recorded.</span>'; return; }
   el.innerHTML='<table style="width:100%;border-collapse:collapse;"><thead><tr>'
-    +'<th style="text-align:left;font-size:12px;padding:4px 6px;">Waitron</th>'
     +'<th style="text-align:left;font-size:12px;padding:4px 6px;">Charged as</th>'
     +'<th style="text-align:left;font-size:12px;padding:4px 6px;"></th>'
     +'<th style="text-align:left;font-size:12px;padding:4px 6px;">Should be</th>'
@@ -2141,41 +2145,52 @@ function renderCorrections(){
     +'<th style="text-align:left;font-size:12px;padding:4px 6px;">Reason / note</th>'
     +'<th class="no-print"></th>'
     +'</tr></thead><tbody>'
-    +sumCorrections.map((c,i)=>'<tr>'
-      +'<td style="padding:3px 6px;"><input class="cWaitron" data-i="'+i+'" value="'+esc(c.waitron||'')+'" placeholder="Name" style="width:80px;" oninput="recalcSummary()"></td>'
-      +'<td style="padding:3px 6px;"><select class="cFrom" data-i="'+i+'" onchange="renderSummary()">'+SALES_PAY.map(p=>'<option'+(p===c.from?' selected':'')+'>'+esc(p)+'</option>').join('')+'</select></td>'
+    +salesCorrs.map((c,i)=>'<tr>'
+      +'<td style="padding:3px 6px;"><select class="scFrom" data-i="'+i+'" onchange="saveSalesSilent()">'+SALES_PAY.map(p=>'<option'+(p===c.from?' selected':'')+'>'+esc(p)+'</option>').join('')+'</select></td>'
       +'<td style="padding:3px 6px;color:var(--muted);font-size:13px;">→</td>'
-      +'<td style="padding:3px 6px;"><select class="cTo" data-i="'+i+'" onchange="renderSummary()">'+SALES_PAY.map(p=>'<option'+(p===c.to?' selected':'')+'>'+esc(p)+'</option>').join('')+'</select></td>'
-      +'<td style="padding:3px 6px;"><input class="cAmt" data-i="'+i+'" type="number" step="0.01" value="'+(c.amount||'')+'" placeholder="0.00" style="width:80px;text-align:right;" oninput="renderSummary()"></td>'
-      +'<td style="padding:3px 6px;"><input class="cNote" data-i="'+i+'" value="'+esc(c.note||'')+'" placeholder="e.g. Mampe charged Tyme Bank as Cash" style="width:260px;"></td>'
-      +'<td style="padding:3px 6px;" class="no-print"><button class="del" onclick="removeCorrectionRow('+i+')">×</button></td>'
+      +'<td style="padding:3px 6px;"><select class="scTo" data-i="'+i+'" onchange="saveSalesSilent()">'+SALES_PAY.map(p=>'<option'+(p===c.to?' selected':'')+'>'+esc(p)+'</option>').join('')+'</select></td>'
+      +'<td style="padding:3px 6px;"><input class="scAmt" data-i="'+i+'" type="number" step="0.01" value="'+(c.amount||'')+'" placeholder="0.00" style="width:80px;text-align:right;" oninput="saveSalesSilent()"></td>'
+      +'<td style="padding:3px 6px;"><input class="scNote" data-i="'+i+'" value="'+esc(c.note||'')+'" placeholder="e.g. Tyme Bank charged as Cash" style="width:220px;" oninput="saveSalesSilent()"></td>'
+      +'<td style="padding:3px 6px;" class="no-print"><button class="del scDelBtn" onclick="removeSCorr('+i+')">×</button></td>'
       +'</tr>').join('')
     +'</tbody></table>';
 }
-function addCorrectionRow(){
-  sumCorrections.push({waitron:'',from:'Cash',to:SALES_PAY.find(p=>p!=='Cash')||SALES_PAY[1],amount:0,note:''});
-  renderCorrections(); recalcSummary();
+function addSCorr(){
+  salesCorrs.push({from:'Cash',to:SALES_PAY.find(p=>p!=='Cash')||SALES_PAY[1],amount:0,note:''});
+  renderSCorr(); applySRole();
 }
-function removeCorrectionRow(i){
-  sumCorrections.splice(i,1); renderCorrections(); recalcSummary();
+function removeSCorr(i){
+  salesCorrs.splice(i,1); renderSCorr(); applySRole(); saveSalesSilent();
 }
-function gatherCorrections(){
-  const rows=document.querySelectorAll('#correctionsList tbody tr');
+function gatherSCorr(){
+  const rows=document.querySelectorAll('#sCorrList tbody tr');
   return [...rows].map(tr=>({
-    waitron:tr.querySelector('.cWaitron').value.trim(),
-    from:tr.querySelector('.cFrom').value,
-    to:tr.querySelector('.cTo').value,
-    amount:parseFloat(tr.querySelector('.cAmt').value)||0,
-    note:tr.querySelector('.cNote').value.trim()
+    from:tr.querySelector('.scFrom').value,
+    to:tr.querySelector('.scTo').value,
+    amount:parseFloat(tr.querySelector('.scAmt').value)||0,
+    note:tr.querySelector('.scNote').value.trim()
   })).filter(c=>c.amount>0);
+}
+function saveSalesSilent(){
+  if(!current) return;
+  gatherSales();
+  Store.save(current).catch(()=>{});
 }
 function drawerTotals(r){
   const s=r.sales||{}; const pay=s.pay||[]; let cash=0, byType={}, diff=0;
   pay.forEach(p=>{ byType[p.type]=(byType[p.type]||0)+(p.counted||0); if(p.type==='Cash')cash=p.counted||0; diff+=((p.counted||0)-(p.expected||0)); });
+  // Apply per-waitron payment corrections (recorded at cash-up time by manager)
+  const corrs=Array.isArray(s.corrections)?s.corrections.filter(c=>c.amount>0):[];
+  corrs.forEach(c=>{
+    byType[c.from]=(byType[c.from]||0)-c.amount;
+    byType[c.to]=(byType[c.to]||0)+c.amount;
+    if(c.from==='Cash') cash-=c.amount;
+    if(c.to==='Cash') cash+=c.amount;
+  });
   const shortage=diff<0?-diff:0;
   const remaining=Math.max(0,shortage-(s.explainedAmt||0));
   const paidShortage=(s.settle==='Paid immediately')?remaining:0;
-  return {cash, byType, diff, tips:s.tips||0, total:Object.values(byType).reduce((a,b)=>a+b,0), paidShortage};
+  return {cash, byType, diff, tips:s.tips||0, total:Object.values(byType).reduce((a,b)=>a+b,0), paidShortage, hasCorr:corrs.length>0};
 }
 function renderSummary(){
   const el=document.getElementById('sumDrawers');
@@ -2192,7 +2207,7 @@ function renderSummary(){
       +'<td class="num"><b>'+M(net)+'</b></td>'
       +nonCashCols.map(c=>{ const v=t.byType[c]||0; gt[c]=(gt[c]||0)+v; return '<td class="num">'+M(v)+'</td>'; }).join('')
       +'<td class="num">'+M(t.total)+'</td>'
-      +'<td class="num variance '+(adjDiff<0?'short':'ok')+'">'+(adjDiff>=0?'+ ':'– ')+M(Math.abs(adjDiff))+(t.paidShortage>0?' <span class="muted" style="font-size:10px;">(+paid)</span>':'')+(r.sales&&r.sales.explainedAmt>0?' <span class="muted" style="font-size:10px;">(adj)</span>':'')+'</td>'
+      +'<td class="num variance '+(adjDiff<0?'short':'ok')+'">'+(adjDiff>=0?'+ ':'– ')+M(Math.abs(adjDiff))+(t.paidShortage>0?' <span class="muted" style="font-size:10px;">(+paid)</span>':'')+(r.sales&&r.sales.explainedAmt>0?' <span class="muted" style="font-size:10px;">(adj)</span>':'')+(t.hasCorr?' <span style="color:var(--primary,#2563eb);font-size:10px;">(corrected)</span>':'')+'</td>'
       +'<td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
     gt['Cash']=(gt['Cash']||0)+hand;
     gtTotal+=t.total; gtDiff+=t.diff; gtTips+=t.tips; gtNet+=net; gtHand+=hand; });
@@ -2203,45 +2218,24 @@ function renderSummary(){
     +nonCashCols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')
     +'<td class="num">'+M(gtTotal)+'</td>'
     +'<td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
-  // Corrections row — applied adjustments for Quickbooks (use live DOM if available)
-  const corrs=(document.querySelectorAll('#correctionsList tbody tr').length?gatherCorrections():sumCorrections.filter(c=>c.amount>0));
-  if(corrs.length){
-    const adjGt=Object.assign({},gt);
-    corrs.forEach(c=>{ adjGt[c.from]=(adjGt[c.from]||0)-c.amount; adjGt[c.to]=(adjGt[c.to]||0)+c.amount; });
-    const cashAdj=corrs.reduce((s,c)=>{ if(c.from==='Cash')return s-c.amount; if(c.to==='Cash')return s+c.amount; return s; },0);
-    const adjHand=gtHand+cashAdj; const adjNet=adjHand-gtTips;
-    foot+='<tr style="font-weight:800;border-top:1px dashed var(--muted);background:var(--surface,#f3f4f6);color:var(--primary,#2563eb);" title="Raw totals adjusted by payment corrections below">'
-      +'<td>Adjusted <span style="font-size:10px;font-weight:400;">(for Quickbooks)</span></td>'
-      +'<td class="num">'+M(adjHand)+'</td>'
-      +'<td class="num">'+M(gtTips)+'</td>'
-      +'<td class="num">'+M(adjNet)+'</td>'
-      +nonCashCols.map(c=>'<td class="num">'+M(adjGt[c]||0)+'</td>').join('')
-      +'<td class="num">'+M(gtTotal)+'</td>'
-      +'<td class="num">—</td><td><span style="font-size:10px;color:var(--muted);">'+corrs.length+' correction'+(corrs.length>1?'s':'')+'</span></td></tr>';
-  }
   el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>';
   recalcSummary();
 }
 function recalcSummary(){
   let totalCash=0, totalTips=0;
   sumRecords.forEach(r=>{ const t=drawerTotals(r); totalCash+=t.cash+t.paidShortage; totalTips+=t.tips; });
-  // Apply corrections that affect the cash total (read from DOM if rendered, else fall back to saved state)
-  const domRows=document.querySelectorAll('#correctionsList tbody tr');
-  const corrsCurrent=domRows.length?gatherCorrections():sumCorrections.filter(c=>c.amount>0);
-  const cashAdj=corrsCurrent.reduce((s,c)=>{ if(c.from==='Cash')return s-c.amount; if(c.to==='Cash')return s+c.amount; return s; },0);
-  const adjTotalCash=totalCash+cashAdj;
-  const net=adjTotalCash-totalTips;
+  const net=totalCash-totalTips;
   const fixedDed=['dDeposit','dPetty','dCab','dFuel','dBread','dSavings'].reduce((s,id)=>s+snum(id),0);
   const otherDedTotal=otherDeds.reduce((s,d)=>s+(parseFloat(d.amount)||0),0);
   const ded=fixedDed+otherDedTotal;
-  set('sumCash',M(adjTotalCash)); set('sumTips',M(totalTips)); set('sumNet',M(net)); set('sumCIH',M(net-ded));
+  set('sumCash',M(totalCash)); set('sumTips',M(totalTips)); set('sumNet',M(net)); set('sumCIH',M(net-ded));
 }
 async function saveSummary(){
   const date=document.getElementById('sumDate').value;
   if(!date){alert('Pick a date first.');return;}
   const rec = (sumDayRec&&sumDayRec.id)?{id:sumDayRec.id}:{};
   rec.type='salesday'; rec.date=date; rec.status='approved';
-  rec.sales={deductions:{deposit:snum('dDeposit'),petty:snum('dPetty'),cab:snum('dCab'),fuel:snum('dFuel'),bread:snum('dBread'),savings:snum('dSavings'),other:otherDeds.filter(d=>d.label||d.amount)},corrections:gatherCorrections()};
+  rec.sales={deductions:{deposit:snum('dDeposit'),petty:snum('dPetty'),cab:snum('dCab'),fuel:snum('dFuel'),bread:snum('dBread'),savings:snum('dSavings'),other:otherDeds.filter(d=>d.label||d.amount)}};
   try{ const s=await Store.save(rec); sumDayRec=s||sumDayRec; toast('✓ Deductions saved'); }catch(e){ alert('Save failed: '+e.message); }
 }
 
