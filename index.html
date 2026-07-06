@@ -1844,7 +1844,8 @@ function fillSales(r){
   const pb=document.getElementById('payBody'); pb.innerHTML=''; const payMap={}; (s.pay||[]).forEach(p=>payMap[p.type]=p);
   SALES_PAY.forEach(t=>{ const p=payMap[t]||{}; const tr=document.createElement('tr'); tr.dataset.type=t;
     if(t==='Cash'){ tr.innerHTML='<td>Cash</td><td class="num payCountedCell">M0.00</td><td class="num"><input class="payExpected" type="number" step="0.01" value="'+(p.expected??'')+'" placeholder="0.00" oninput="recalcS()"></td><td class="num payDiff">M0.00</td>'; }
-    else if(t==='M-Pesa'||t==='ECOCASH'){
+    else {
+      // All non-cash types use itemised transaction lines
       const lines=Array.isArray(p.lines)&&p.lines.length?p.lines:[null];
       const lRows=lines.map(v=>'<tr><td><input class="mLine" type="number" step="0.01" value="'+(v??'')+'" placeholder="0.00" oninput="recalcS()" style="width:90px;"></td><td><button type="button" class="del" onclick="this.closest(\'tr\').remove();recalcS()">×</button></td></tr>').join('');
       tr.innerHTML='<td>'+esc(t)+'</td>'
@@ -1856,7 +1857,6 @@ function fillSales(r){
         +'<td class="num"><input class="payExpected" type="number" step="0.01" value="'+(p.expected??'')+'" placeholder="0.00" oninput="recalcS()"></td>'
         +'<td class="num payDiff">M0.00</td>';
     }
-    else { tr.innerHTML='<td>'+esc(t)+'</td><td class="num"><input class="payCounted" type="number" step="0.01" value="'+(p.counted??'')+'" placeholder="0.00" oninput="recalcS()"></td><td class="num"><input class="payExpected" type="number" step="0.01" value="'+(p.expected??'')+'" placeholder="0.00" oninput="recalcS()"></td><td class="num payDiff">M0.00</td>'; }
     pb.appendChild(tr); });
   document.getElementById('sExplain').value=s.explanation||'';
   document.getElementById('sSettle').value=s.settle||'';
@@ -1875,13 +1875,13 @@ function recalcS(){
   document.querySelectorAll('#denomBody tr').forEach(tr=>{ const v=parseFloat(tr.dataset.val)||0; const c=parseFloat(tr.querySelector('input').value)||0; tr.querySelector('.denomAmt').textContent=M(v*c); });
   const cc=cashCounted(); set('sCashCounted',M(cc));
   let totalDiff=0;
-  document.querySelectorAll('#payBody tr').forEach(tr=>{
+  document.querySelectorAll('#payBody > tr').forEach(tr=>{
     const type=tr.dataset.type;
     let counted;
     if(type==='Cash'){
       counted=cc;
       const cell=tr.querySelector('.payCountedCell'); if(cell) cell.textContent=M(cc);
-    } else if((type==='M-Pesa'||type==='ECOCASH')&&tr.querySelector('.mLine')){
+    } else if(tr.querySelector('.mLine')){
       counted=[...tr.querySelectorAll('.mLine')].reduce((s,i)=>s+(parseFloat(i.value)||0),0);
       const mt=tr.querySelector('.mTotal'); if(mt) mt.textContent=M(counted);
     } else {
@@ -1889,8 +1889,8 @@ function recalcS(){
     }
     const expected = parseFloat((tr.querySelector('.payExpected')||{}).value)||0;
     const diff=counted-expected; totalDiff+=diff;
-    const d=tr.querySelector('.payDiff'); d.textContent=(diff>=0?'+ ':'– ')+M(Math.abs(diff));
-    d.className='num payDiff '+(Math.abs(diff)<0.005?'':(diff<0?'variance short':'variance ok'));
+    const d=tr.querySelector('.payDiff'); if(d){ d.textContent=(diff>=0?'+ ':'– ')+M(Math.abs(diff));
+    d.className='num payDiff '+(Math.abs(diff)<0.005?'':(diff<0?'variance short':'variance ok')); }
   });
   const td=document.getElementById('sTotalDiff'); td.textContent=(totalDiff>=0?'+ ':'– ')+M(Math.abs(totalDiff));
   td.className='num variance '+(Math.abs(totalDiff)<0.005?'ok':(totalDiff<0?'short':'ok'));
@@ -1912,11 +1912,11 @@ function gatherSales(){
   current.cash_float=parseFloat(document.getElementById('sOpening').value)||0;
   const denoms={}; document.querySelectorAll('#denomBody tr').forEach(tr=>{ const c=parseFloat(tr.querySelector('input').value)||0; if(c) denoms[tr.dataset.val]=c; });
   const cc=cashCounted();
-  const pay=[...document.querySelectorAll('#payBody tr')].map(tr=>{
+  const pay=[...document.querySelectorAll('#payBody > tr')].map(tr=>{
     const type=tr.dataset.type;
     let counted, lines;
     if(type==='Cash'){ counted=cc; }
-    else if((type==='M-Pesa'||type==='ECOCASH')&&tr.querySelector('.mLine')){
+    else if(tr.querySelector('.mLine')){
       const vals=[...tr.querySelectorAll('.mLine')].map(i=>parseFloat(i.value)||0);
       lines=vals.filter(v=>v>0);
       counted=vals.reduce((s,v)=>s+v,0);
