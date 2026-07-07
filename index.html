@@ -407,6 +407,11 @@
 
     <div class="card" id="secWExpense">
       <h2>Expenses <span class="who">Waitron</span></h2>
+      <div id="wFloatInfo" style="display:none;background:#eaf7f0;border:1px solid #a7dfcc;border-radius:9px;padding:10px 14px;margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:2px;">Cash float authorised for you</div>
+        <div style="font-size:22px;font-weight:800;color:var(--brand);" id="wFloatEcho">M0.00</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;" id="wAuthByEcho"></div>
+      </div>
       <p class="hint">One line per expense, each with a receipt attached.</p>
       <div style="overflow-x:auto;">
       <table id="wExpTable"><thead><tr>
@@ -1370,7 +1375,12 @@ async function refreshList(){
   try{
     let rows=await Store.list();
     rows=rows.filter(r=> (r.type||'po')===listMode);
-    if((listMode==='waitron'||listMode==='sales') && ME.role==='waitron'){ const meName=(ME.name||'').trim().toLowerCase(); rows=rows.filter(r=>(r.runner||'').trim().toLowerCase()===meName); }
+    if((listMode==='waitron'||listMode==='sales') && ME.role==='waitron'){
+      const meName=(ME.name||'').trim().toLowerCase();
+      // If the account has a generic shared name 'waitron', show all records so every waitron can see theirs.
+      // If a named individual account is used (e.g. 'Morie'), filter to their records only.
+      if(meName && meName!=='waitron'){ rows=rows.filter(r=>(r.runner||'').trim().toLowerCase()===meName); }
+    }
     if(!rows.length){wrap.innerHTML='<p class="muted">Nothing here yet'+(ME.role==='authoriser'?' — click “+ New”.':'.')+'</p>';return;}
     const canDelete = ME.role==='authoriser';
     const inner=(r)=>{
@@ -1784,6 +1794,14 @@ function applyWRole(){
   document.getElementById('secWAuth').style.display = isW ? 'none' : '';
   document.getElementById('secWApprover').style.display = isW ? 'none' : '';
   document.getElementById('secWShortage').style.display = isW ? 'none' : '';
+  // show the read-only float banner only to waitrons
+  const wfi=document.getElementById('wFloatInfo'); if(wfi) wfi.style.display=isW?'':'none';
+  if(isW){
+    const float=parseFloat(document.getElementById('wFloat').value)||0;
+    const auth=(document.getElementById('wAuthoriser').value||'').trim();
+    const fe=document.getElementById('wFloatEcho'); if(fe) fe.textContent=M(float);
+    const fa=document.getElementById('wAuthByEcho'); if(fa) fa.textContent=auth?'Authorised by '+auth:'';
+  }
   enableSection('secWAuth', authEdit);
   enableSection('secWExpense', wEdit);
   enableSection('secWApprover', appEdit);
@@ -1888,7 +1906,7 @@ function fillSales(r){
     if(t==='Cash'){ tr.innerHTML='<td>Cash</td><td class="num payCountedCell">M0.00</td><td class="num"><input class="payExpected" type="number" step="0.01" value="'+(p.expected??'')+'" placeholder="0.00" oninput="recalcS()"></td><td class="num payDiff">M0.00</td>'; }
     else {
       // All non-cash types use itemised transaction lines
-      const lines=Array.isArray(p.lines)&&p.lines.length?p.lines:[null];
+      const lines=Array.isArray(p.lines)&&p.lines.length?p.lines:(p.counted>0?[p.counted]:[null]);
       const lRows=lines.map(v=>'<tr><td><input class="mLine" type="number" step="0.01" value="'+(v??'')+'" placeholder="0.00" oninput="recalcS()" style="width:90px;"></td><td><button type="button" class="del" onclick="this.closest(\'tr\').remove();recalcS()">×</button></td></tr>').join('');
       tr.innerHTML='<td>'+esc(t)+'</td>'
         +'<td class="num"><div class="mLinesWrap">'
