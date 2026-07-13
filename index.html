@@ -522,7 +522,7 @@
 
       <div style="margin-top:16px;">
         <h2 style="font-size:15px;margin:0 0 4px;">2b. Payment corrections <span class="muted" style="font-size:11px;font-weight:normal;">— manager / accountant</span></h2>
-        <p class="hint" style="margin-top:0;">Record any payment type mistakes (e.g. Tyme Bank charged as Cash). Add as many rows as needed. Adjusted totals flow to the daily summary and Quickbooks.</p>
+        <p class="hint" style="margin-top:0;">Record any Loyverse POS charging errors (e.g. charged as Cash but should be Tyme Bank). This adjusts the <strong>Expected</strong> amounts only — the counted/received amounts are always correct and are never changed.</p>
         <div id="sCorrList" style="margin-bottom:6px;"></div>
         <button class="btn ghost small no-print" id="sBtnAddCorr" onclick="addSCorr()" style="margin-top:4px;">+ Add correction</button>
       </div>
@@ -1936,6 +1936,13 @@ function addMLine(btn){
 function recalcS(){
   document.querySelectorAll('#denomBody tr').forEach(tr=>{ const v=parseFloat(tr.dataset.val)||0; const c=parseFloat(tr.querySelector('input').value)||0; tr.querySelector('.denomAmt').textContent=M(v*c); });
   const cc=cashCounted(); set('sCashCounted',M(cc));
+  // Build per-type expected adjustments from corrections (corrections fix Loyverse POS errors)
+  // "Charged as X → Should be Y": X's expected decreases, Y's expected increases
+  const corrAdj={};
+  if(Array.isArray(salesCorrs)) salesCorrs.filter(c=>c.amount>0).forEach(c=>{
+    corrAdj[c.from]=(corrAdj[c.from]||0)-c.amount;
+    corrAdj[c.to]=(corrAdj[c.to]||0)+c.amount;
+  });
   let totalDiff=0;
   document.querySelectorAll('#payBody > tr').forEach(tr=>{
     const type=tr.dataset.type;
@@ -1949,7 +1956,8 @@ function recalcS(){
     } else {
       counted=parseFloat((tr.querySelector('.payCounted')||{}).value)||0;
     }
-    const expected = parseFloat((tr.querySelector('.payExpected')||{}).value)||0;
+    const rawExpected = parseFloat((tr.querySelector('.payExpected')||{}).value)||0;
+    const expected = rawExpected + (corrAdj[type]||0);
     const diff=counted-expected; totalDiff+=diff;
     const d=tr.querySelector('.payDiff'); if(d){ d.textContent=(diff>=0?'+ ':'– ')+M(Math.abs(diff));
     d.className='num payDiff '+(Math.abs(diff)<0.005?'':(diff<0?'variance short':'variance ok')); }
@@ -2197,14 +2205,10 @@ function saveSalesSilent(){
 function drawerTotals(r){
   const s=r.sales||{}; const pay=s.pay||[]; let cash=0, byType={}, diff=0;
   pay.forEach(p=>{ byType[p.type]=(byType[p.type]||0)+(p.counted||0); if(p.type==='Cash')cash=p.counted||0; diff+=((p.counted||0)-(p.expected||0)); });
-  // Apply per-waitron payment corrections (recorded at cash-up time by manager)
+  // Corrections fix the Expected/POS (Loyverse) side — not the counted/received amounts.
+  // "Charged as X → Should be Y" means: reduce X's expected, increase Y's expected.
+  // Net effect on total diff = 0 (corrections cancel out across types), so byType and cash are unchanged.
   const corrs=Array.isArray(s.corrections)?s.corrections.filter(c=>c.amount>0):[];
-  corrs.forEach(c=>{
-    byType[c.from]=(byType[c.from]||0)-c.amount;
-    byType[c.to]=(byType[c.to]||0)+c.amount;
-    if(c.from==='Cash') cash-=c.amount;
-    if(c.to==='Cash') cash+=c.amount;
-  });
   const shortage=diff<0?-diff:0;
   const remaining=Math.max(0,shortage-(s.explainedAmt||0));
   const paidShortage=(s.settle==='Paid immediately')?remaining:0;
