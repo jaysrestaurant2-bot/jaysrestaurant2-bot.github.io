@@ -2034,7 +2034,17 @@ function setSStatus(s){
     if(tips && tips.value.trim()===''){alert('Enter the tips amount before approving — use 0 if there are none.');return;}
     current.approved_at=new Date().toISOString();
   }
-  current.status=s; renderSStatus(); applySRole(); saveSales();
+  // Gather BEFORE changing status or applying role locks — fields are still fully accessible here.
+  // Without this, applySRole() would disable tips/float/expected inputs first, and gatherSales()
+  // inside saveSales() could then read stale/zero values, wiping data on send-back.
+  gatherSales();
+  current.status=s;
+  renderSStatus(); applySRole();
+  // Save the already-gathered current directly, skipping a second gatherSales() call.
+  (async()=>{
+    try{ const g=await mergeLatest(current); const saved=await Store.save(g); current=saved||current; toast('✓ Saved'); }
+    catch(e){ alert('Save failed: '+e.message); }
+  })();
 }
 function renderSStatus(){
   const b=document.getElementById('sStatusBadge'); const labels={draft:'Draft',submitted:'Submitted',approved:'Approved',returned:'Sent back'};
