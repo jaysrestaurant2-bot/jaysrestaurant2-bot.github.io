@@ -1877,7 +1877,26 @@ function blankSales(){
 }
 function openSales(id){
   if(id){ Store.list().then(rows=>{ const r=rows.find(x=>String(x.id)===String(id)); if(r)fillSales(r); }); }
-  else { current=blankSales(); if(ME.role==='waitron') current.runner=ME.name; fillSales(current); }
+  else if(ME.role==='waitron'){
+    // For named waitron accounts: check for an existing draft/returned sheet and open it instead of creating a duplicate.
+    // For the shared generic "Waitron" account: skip the check (can't tell which person is logging in).
+    const myName=(ME.name||'').trim().toLowerCase();
+    if(myName && myName!=='waitron'){
+      Store.list().then(rows=>{
+        const existing=rows.find(r=>r.type==='sales'&&(r.status==='draft'||r.status==='returned')&&
+          (r.runner||'').trim().toLowerCase()===myName);
+        if(existing){
+          toast('Opening your '+(existing.status==='returned'?'sent-back sheet — please correct and resubmit':'unfinished draft')+'.');
+          fillSales(existing);
+        } else {
+          current=blankSales(); current.runner=ME.name; fillSales(current);
+        }
+      });
+    } else {
+      current=blankSales(); current.runner=ME.name; fillSales(current);
+    }
+  }
+  else { current=blankSales(); fillSales(current); }
   document.getElementById('listView').classList.add('hidden');
   document.getElementById('detailView').classList.add('hidden');
   document.getElementById('teamView').classList.add('hidden');
