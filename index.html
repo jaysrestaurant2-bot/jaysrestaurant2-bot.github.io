@@ -250,7 +250,10 @@
         <div id="poDocBox" style="margin-bottom:6px;font-size:14px;"></div>
         <input type="file" id="poFile" accept="application/pdf,image/*" class="no-print" onchange="attachPO(this)">
       </div>
-      <div class="row-actions no-print"><button class="btn primary small" id="btnAuthorise" onclick="setStatus('authorised')">✓ Authorise &amp; hand to runner</button></div>
+      <div class="row-actions no-print">
+        <button class="btn primary small" id="btnAuthorise" onclick="setStatus('authorised')">✓ Authorise &amp; hand to runner</button>
+        <button class="btn small" id="btnAmend" onclick="saveRun()">💾 Save amendments</button>
+      </div>
     </div>
 
     <!-- RUNNER SECTION -->
@@ -1151,13 +1154,17 @@ function renderStatus(){
 function applyRole(){
   const role=document.getElementById('role').value;
   const st=current?current.status:'draft';
-  const authEdit = role==='authoriser' && (st==='draft'||st==='returned'||st==='authorised');
+  // authEdit: authoriser can always edit their auth section (budget, float, limits, notes) at any stage
+  const authEdit = role==='authoriser';
+  // authCanAuth: show Authorise button only when the run hasn't been submitted yet
+  const authCanAuth = role==='authoriser' && (st==='draft'||st==='returned'||st==='authorised');
   const runEdit  = role==='runner' && (st==='authorised'||st==='returned');   // no editing once submitted
   const appEdit  = role==='approver' && st==='submitted';
   enableSection('secAuth', authEdit);
   enableSection('secRunner', runEdit);
   enableSection('secApprover', appEdit);
-  show('btnAuthorise', authEdit);
+  show('btnAuthorise', authCanAuth);
+  show('btnAmend', role==='authoriser' && (st==='submitted'||st==='approved'));
   show('btnSubmit', runEdit);
   show('btnApprove', appEdit); show('btnReturn', appEdit);
   show('btnAddBuy', runEdit); show('btnAddTrip', runEdit); show('btnAddFloat', authEdit);
@@ -1774,7 +1781,17 @@ function setWStatus(s){
     if(missing.length){ alert('Can’t submit — '+missing.length+' expense(s) still need a receipt attached.'); return; }
   }
   if(s==='approved'){current.approved_at=new Date().toISOString();}
-  current.status=s; renderWStatus(); applyWRole(); saveWaitron();
+  // Gather BEFORE changing status or applying role locks — fields are still fully accessible here.
+  // Without this, applyWRole() disables inputs first and gatherWaitron() inside saveWaitron()
+  // may read stale/empty values, wiping float or expense data on send-back.
+  gatherWaitron();
+  current.status=s; renderWStatus(); applyWRole();
+  // Save the already-gathered current directly, skipping a second gatherWaitron() call.
+  (async()=>{
+    try{ const saved=await Store.save(current); current=saved||current; toast('✓ Saved');
+      if(current.type==='waitron'&&current.date&&current.cash_float>0&&['authorised','submitted','approved'].includes(current.status)){ syncPettyCashToSummary(current.date); }
+    }catch(e){ alert('Save failed: '+e.message); }
+  })();
 }
 function renderWStatus(){
   const b=document.getElementById('wStatusBadge');
@@ -1786,9 +1803,13 @@ function renderWStatus(){
 }
 function applyWRole(){
   const role=ME.role, st=current?current.status:'draft';
-  const authEdit=role==='authoriser' && (st==='draft'||st==='returned'||st==='authorised');
+  // authEdit: authoriser can edit their auth section (float, date, notes) including after submission
+  const authEdit=role==='authoriser' && (st==='draft'||st==='returned'||st==='authorised'||st==='submitted');
+  // authCanAuth: show Authorise button only when status hasn't gone past authorised yet
+  const authCanAuth=role==='authoriser' && (st==='draft'||st==='returned'||st==='authorised');
   const wEdit   =role==='waitron'    && (st==='authorised'||st==='returned');
-  const appEdit =role==='approver'   && st==='submitted';
+  // appEdit: approver role OR authoriser (manager) can approve/send-back a submitted petty cash
+  const appEdit =(role==='approver'||role==='authoriser') && st==='submitted';
   // a waitron never sees the manager's float-setting section or the approver section
   const isW = role==='waitron';
   document.getElementById('secWAuth').style.display = isW ? 'none' : '';
@@ -1806,7 +1827,7 @@ function applyWRole(){
   enableSection('secWExpense', wEdit);
   enableSection('secWApprover', appEdit);
   enableSection('secWShortage', authEdit||appEdit);
-  show('wBtnAuthorise', authEdit); show('wBtnSubmit', wEdit);
+  show('wBtnAuthorise', authCanAuth); show('wBtnSubmit', wEdit);
   show('wBtnApprove', appEdit); show('wBtnReturn', appEdit); show('wBtnAddExp', wEdit);
   document.querySelectorAll('#waitronView .del').forEach(b=>{ b.style.display=b.disabled?'none':''; });
 }
