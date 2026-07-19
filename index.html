@@ -1896,7 +1896,7 @@ async function migrateAllPettySyncs(){
 const DENOMS=[200,100,50,20,10,5,2,1,0.5];
 const SALES_PAY=['Cash','M-Pesa','ECOCASH','NetBank','Tyme Bank','Post Bank'];
 /* Waitron names for the cash-up dropdown — edit this list anytime. */
-const WAITRON_NAMES=['Nolly','Lizzy','Twinpy','Chief','Mampe','TP','Morie','Thato','Lemo','David'];
+const WAITRON_NAMES=['Nolly','Lizzy','Twinpy','Chief','Mampe','TP','Morie','Thato','Lemo','David','Limpho','Mpho'];
 function blankSales(){
   return {id:null, type:'sales', date:new Date().toISOString().slice(0,10), status:'draft', runner:'', cash_float:0,
     sales:{denoms:{},tips:0,pay:[]},
