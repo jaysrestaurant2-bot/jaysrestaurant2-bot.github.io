@@ -495,9 +495,9 @@
     <div class="card" id="secSDrawer">
       <h2>Drawer cash-up <span class="who">Waitron</span></h2>
       <div class="grid g4">
-        <div><label>Date</label><input type="date" id="sDate"></div>
-        <div><label>Employee (waitron)</label><select id="sPerson" onchange="recalcS()"></select></div>
-        <div><label>Opening float (M)</label><input type="number" step="0.01" id="sOpening" placeholder="0.00" oninput="recalcS()"></div>
+        <div><label>Date</label><input type="date" id="sDate" onchange="checkFloatMatch(document.getElementById('sPerson').value,this.value)"></div>
+        <div><label>Employee (waitron)</label><select id="sPerson" onchange="recalcS();checkFloatMatch(this.value,document.getElementById('sDate').value)"></select></div>
+        <div><label>Opening float (M)</label><input type="number" step="0.01" id="sOpening" placeholder="0.00" oninput="recalcS();checkFloatMatch(document.getElementById('sPerson').value,document.getElementById('sDate').value)"><div id="sFloatCheck" style="font-size:12px;margin-top:4px;"></div></div>
         <div><label>Tips (M) — manager</label><input type="number" step="0.01" id="sTips" placeholder="0.00" oninput="recalcS()"></div>
         <div><label>Net cash (total cash − tips)</label><div class="amt" id="sNetCash" style="padding:10px 0;font-weight:700;">M0.00</div></div>
       </div>
@@ -1700,6 +1700,19 @@ function fillWaitron(r){
   document.getElementById('wExpBody').innerHTML=''; (r.purchases||[]).forEach(addExpense); if(!(r.purchases||[]).length)addExpense();
   renderWStatus(); applyWRole(); recalcW();
 }
+/* Cross-check: look up the petty cash float for a given waitron on a given date and
+   update the #sFloatCheck indicator in the individual sales cash-up form. */
+async function checkFloatMatch(runner, date){
+  const el=document.getElementById('sFloatCheck'); if(!el) return;
+  if(!runner||!date){el.innerHTML='';return;}
+  let rows; try{ rows=await Store.list(); }catch(e){el.innerHTML='';return;}
+  const wRec=rows.find(r=>r.type==='waitron' && r.date===date && ['authorised','submitted','approved'].includes(r.status) && (r.runner||'').trim().toLowerCase()===(runner||'').trim().toLowerCase());
+  const pcFloat=wRec?wRec.cash_float:null;
+  const repFloat=parseFloat(document.getElementById('sOpening').value)||0;
+  if(pcFloat===null){el.innerHTML='<span class="muted">No petty cash record found for this waitron.</span>';return;}
+  if(Math.abs(pcFloat-repFloat)<0.005){el.innerHTML='<span style="color:var(--good,#16a34a);">✓ Matches petty cash float ('+M(pcFloat)+')</span>';}
+  else{el.innerHTML='<span style="color:#dc2626;font-weight:700;">⚠ Mismatch — petty cash gave '+M(pcFloat)+', reported opening is '+M(repFloat)+'</span>';}
+}
 function gatherWaitron(){
   current.type='waitron';
   current.date=document.getElementById('wDate').value;
@@ -1972,6 +1985,8 @@ function fillSales(r){
   renderSCorr();
   renderShortRcpt();
   renderSStatus(); applySRole(); recalcS();
+  // Async float cross-check — populate the match/mismatch indicator next to Opening float
+  checkFloatMatch(r.runner, r.date);
 }
 function cashCounted(){ let sum=0; document.querySelectorAll('#denomBody tr').forEach(tr=>{ sum+=(parseFloat(tr.dataset.val)||0)*(parseFloat(tr.querySelector('input').value)||0); }); return sum; }
 function addMLine(btn){
@@ -2139,7 +2154,7 @@ function removeShortRcpt(i){
 }
 
 /* ========================= DAILY SALES SUMMARY (roll-up) ========================= */
-let sumRecords=[], sumDayRec=null, otherDeds=[];
+let sumRecords=[], sumDayRec=null, otherDeds=[], sumWFloatMap={};
 let salesCorrs=[];
 let pendingCarryForwards=[];
 /* Helper: find NEXT-day waitron floats (floats for D+1 come from D's cash), update dPetty, silently save.
@@ -2197,6 +2212,11 @@ async function loadSummary(){
   let rows=[]; try{ rows=await Store.list(); }catch(e){}
   sumRecords=rows.filter(r=>r.type==='sales' && r.date===date);
   sumDayRec=rows.find(r=>r.type==='salesday' && r.date===date)||null;
+  // Build petty cash float map for this date: { runner_name_lower → cash_float }
+  // Used to cross-check each waitron's petty cash float vs what they reported as their opening float.
+  sumWFloatMap={};
+  rows.filter(r=>r.type==='waitron' && r.date===date && ['authorised','submitted','approved'].includes(r.status))
+    .forEach(r=>{ sumWFloatMap[(r.runner||'').trim().toLowerCase()]=r.cash_float||0; });
   const ded=(sumDayRec&&sumDayRec.sales&&sumDayRec.sales.deductions)||{};
   document.getElementById('dDeposit').value=ded.deposit||''; document.getElementById('dPetty').value=ded.petty||'';
   document.getElementById('dCab').value=ded.cab||''; document.getElementById('dFuel').value=ded.fuel||'';
@@ -2276,10 +2296,18 @@ function renderSummary(){
   if(!sumRecords.length){ el.innerHTML='<span class="muted">No cash-ups for this date yet.</span>'; recalcSummary(); return; }
   const cols=SALES_PAY;
   const nonCashCols=cols.filter(c=>c!=='Cash');
-  let head='<tr><th>Employee</th><th class="num">Cash</th><th class="num">Tips</th><th class="num">Net cash</th>'+nonCashCols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Difference</th><th>Status</th></tr>';
+  let head='<tr><th>Employee</th><th class="num">Cash</th><th class="num">Tips</th><th class="num">Net cash</th>'+nonCashCols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Difference</th><th>Float check</th><th>Status</th></tr>';
   let body=''; const gt={}; let gtTotal=0, gtDiff=0, gtTips=0, gtNet=0, gtHand=0;
   sumRecords.forEach(r=>{ const t=drawerTotals(r); const hand=t.cash+t.paidShortage; const net=hand-t.tips;
     const shortage=t.diff<0?-t.diff:0; const remaining=Math.max(0,shortage-(r.sales&&r.sales.explainedAmt||0)); const adjDiff=t.diff>=0?t.diff:-remaining;
+    // Float cross-check: compare petty cash float given vs opening float the waitron reported
+    const rKey=(r.runner||'').trim().toLowerCase();
+    const pcFloat=sumWFloatMap.hasOwnProperty(rKey)?sumWFloatMap[rKey]:null;
+    const repFloat=r.cash_float||0;
+    let floatCell;
+    if(pcFloat===null){ floatCell='<td class="muted" style="font-size:12px;" title="No petty cash record found for this waitron on this date">—</td>'; }
+    else if(Math.abs(pcFloat-repFloat)<0.005){ floatCell='<td style="color:var(--good,#16a34a);font-size:12px;" title="Petty cash float matches reported opening float">✓ '+M(pcFloat)+'</td>'; }
+    else { floatCell='<td style="color:#dc2626;font-weight:700;font-size:12px;" title="Mismatch — petty cash: '+M(pcFloat)+' | reported opening: '+M(repFloat)+'">⚠ PC '+M(pcFloat)+' / Rpt '+M(repFloat)+'</td>'; }
     body+='<tr><td>'+esc(r.runner||'—')+'</td>'
       +'<td class="num"><b>'+M(hand)+'</b></td>'
       +'<td class="num">'+M(t.tips)+'</td>'
@@ -2287,6 +2315,7 @@ function renderSummary(){
       +nonCashCols.map(c=>{ const v=t.byType[c]||0; gt[c]=(gt[c]||0)+v; return '<td class="num">'+M(v)+'</td>'; }).join('')
       +'<td class="num">'+M(t.total)+'</td>'
       +'<td class="num variance '+(adjDiff<0?'short':'ok')+'">'+(adjDiff>=0?'+ ':'– ')+M(Math.abs(adjDiff))+(t.paidShortage>0?' <span class="muted" style="font-size:10px;">(+paid)</span>':'')+(r.sales&&r.sales.explainedAmt>0?' <span class="muted" style="font-size:10px;">(adj)</span>':'')+(t.hasCorr?' <span style="color:var(--primary,#2563eb);font-size:10px;">(corrected)</span>':'')+'</td>'
+      +floatCell
       +'<td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
     gt['Cash']=(gt['Cash']||0)+hand;
     gtTotal+=t.total; gtDiff+=t.diff; gtTips+=t.tips; gtNet+=net; gtHand+=hand; });
@@ -2296,7 +2325,7 @@ function renderSummary(){
     +'<td class="num">'+M(gtNet)+'</td>'
     +nonCashCols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')
     +'<td class="num">'+M(gtTotal)+'</td>'
-    +'<td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
+    +'<td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td><td></td></tr>';
   el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>';
   recalcSummary();
 }
