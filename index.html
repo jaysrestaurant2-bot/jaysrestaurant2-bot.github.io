@@ -1384,7 +1384,9 @@ async function refreshList(){
     rows=rows.filter(r=> (r.type||'po')===listMode);
     if((listMode==='waitron'||listMode==='sales') && ME.role==='waitron'){
       const meName=(ME.name||'').trim().toLowerCase();
-      if(meName){ rows=rows.filter(r=>(r.runner||'').trim().toLowerCase()===meName); }
+      // Only filter by name for individually-named accounts (e.g. 'Morie').
+      // The shared 'Waitron' account shows all records so any waitron can find theirs.
+      if(meName && meName!=='waitron'){ rows=rows.filter(r=>(r.runner||'').trim().toLowerCase()===meName); }
     }
     if(!rows.length){wrap.innerHTML='<p class="muted">Nothing here yet'+(ME.role==='authoriser'?' — click “+ New”.':'.')+'</p>';return;}
     const canDelete = ME.role==='authoriser';
@@ -1920,7 +1922,7 @@ function openSales(id){
   if(id){ Store.list().then(rows=>{ const r=rows.find(x=>String(x.id)===String(id)); if(r)fillSales(r); }); }
   else if(ME.role==='waitron'){
     const myName=(ME.name||'').trim().toLowerCase();
-    if(myName){
+    if(myName && myName!=='waitron'){
       Store.list().then(rows=>{
         const existing=rows.find(r=>r.type==='sales'&&
           ['draft','returned','submitted'].includes(r.status)&&
@@ -2081,7 +2083,7 @@ function setSStatus(s){
   if(s==='submitted' && ME.role==='waitron'){
     const myName=(ME.name||'').trim().toLowerCase();
     const recDate=document.getElementById('sDate').value;
-    if(myName && recDate){
+    if(myName && myName!=='waitron' && recDate){
       Store.list().then(rows=>{
         const dupe=rows.find(r=>r.type==='sales'&&String(r.id)!==String(current.id||'')&&
           (r.runner||'').trim().toLowerCase()===myName&&r.date===recDate&&
