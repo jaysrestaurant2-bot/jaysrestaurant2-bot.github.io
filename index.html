@@ -1753,7 +1753,7 @@ function recalcW(){
 }
 function addExpense(e={}){
   const tr=document.createElement('tr'); tr._receiptFile=e.receiptFile||null;
-  const cats=['Fuel','Airtime','Change given','Other'];
+  const cats=['Starting drawer','Fuel','Airtime','Change given','Other'];
   tr.innerHTML=`
     <td><select class="wCat" onchange="recalcW()">${cats.map(c=>'<option'+(c===e.category?' selected':'')+'>'+c+'</option>').join('')}</select></td>
     <td><input class="wNote" value="${esc(e.note)}" placeholder="e.g. bike fuel"></td>
@@ -2210,11 +2210,14 @@ async function loadSummary(){
   let rows=[]; try{ rows=await Store.list(); }catch(e){}
   sumRecords=rows.filter(r=>r.type==='sales' && r.date===date);
   sumDayRec=rows.find(r=>r.type==='salesday' && r.date===date)||null;
-  // Build petty cash float map for this date: { runner_name_lower → cash_float }
-  // Used to cross-check each waitron's petty cash float vs what they reported as their opening float.
+  // Sum of "Starting drawer" expense lines across all waitron petty cash records for this date.
+  // This is the total cash drawn from petty cash for starting drawers — should match sum of opening floats in daily sales.
   sumWFloatMap={};
   rows.filter(r=>r.type==='waitron' && r.date===date && ['authorised','submitted','approved'].includes(r.status))
-    .forEach(r=>{ sumWFloatMap[(r.runner||'').trim().toLowerCase()]=r.cash_float||0; });
+    .forEach(r=>{
+      const sdTotal=(r.purchases||[]).filter(p=>(p.category||'').trim().toLowerCase()==='starting drawer').reduce((s,p)=>s+(p.amount||0),0);
+      if(sdTotal>0) sumWFloatMap[(r.runner||'').trim().toLowerCase()]=sdTotal;
+    });
   const ded=(sumDayRec&&sumDayRec.sales&&sumDayRec.sales.deductions)||{};
   document.getElementById('dDeposit').value=ded.deposit||''; document.getElementById('dPetty').value=ded.petty||'';
   document.getElementById('dCab').value=ded.cab||''; document.getElementById('dFuel').value=ded.fuel||'';
@@ -2324,8 +2327,8 @@ function renderSummary(){
     const diff=gtReportedFloat-totalPetty;
     floatCheckHtml='<div style="margin-top:10px;padding:10px 14px;border-radius:8px;border:2px solid '+(match?'var(--good,#16a34a)':'#dc2626')+';background:'+(match?'rgba(22,163,74,.07)':'rgba(220,38,38,.07)')+';font-size:13px;">'
       +(match
-        ? '<b style="color:var(--good,#16a34a);">✓ Starting drawer check passed</b> — Petty cash total <b>'+M(totalPetty)+'</b> matches the sum of all reported opening floats <b>'+M(gtReportedFloat)+'</b>.'
-        : '<b style="color:#dc2626;">⚠ Starting drawer mismatch</b> — Petty cash gave out <b>'+M(totalPetty)+'</b> but waitrons\' reported opening floats add up to <b>'+M(gtReportedFloat)+'</b> (difference: <b>'+M(Math.abs(diff))+'</b> '+(diff>0?'over':'under')+').')
+        ? '<b style="color:var(--good,#16a34a);">✓ Starting drawer check passed</b> — "Starting drawer" expenses in petty cash <b>'+M(totalPetty)+'</b> matches the sum of all reported opening floats <b>'+M(gtReportedFloat)+'</b>.'
+        : '<b style="color:#dc2626;">⚠ Starting drawer mismatch</b> — "Starting drawer" expenses in petty cash total <b>'+M(totalPetty)+'</b> but waitrons\' reported opening floats add up to <b>'+M(gtReportedFloat)+'</b> (difference: <b>'+M(Math.abs(diff))+'</b> '+(diff>0?'over':'under')+').')
       +'</div>';
   }
   el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>'+floatCheckHtml;
