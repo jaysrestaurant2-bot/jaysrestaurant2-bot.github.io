@@ -495,9 +495,9 @@
     <div class="card" id="secSDrawer">
       <h2>Drawer cash-up <span class="who">Waitron</span></h2>
       <div class="grid g4">
-        <div><label>Date</label><input type="date" id="sDate" onchange="checkFloatMatch(document.getElementById('sPerson').value,this.value)"></div>
-        <div><label>Employee (waitron)</label><select id="sPerson" onchange="recalcS();checkFloatMatch(this.value,document.getElementById('sDate').value)"></select></div>
-        <div><label>Opening float (M)</label><input type="number" step="0.01" id="sOpening" placeholder="0.00" oninput="recalcS();checkFloatMatch(document.getElementById('sPerson').value,document.getElementById('sDate').value)"><div id="sFloatCheck" style="font-size:12px;margin-top:4px;"></div></div>
+        <div><label>Date</label><input type="date" id="sDate"></div>
+        <div><label>Employee (waitron)</label><select id="sPerson" onchange="recalcS()"></select></div>
+        <div><label>Opening float (M)</label><input type="number" step="0.01" id="sOpening" placeholder="0.00" oninput="recalcS()"></div>
         <div><label>Tips (M) — manager</label><input type="number" step="0.01" id="sTips" placeholder="0.00" oninput="recalcS()"></div>
         <div><label>Net cash (total cash − tips)</label><div class="amt" id="sNetCash" style="padding:10px 0;font-weight:700;">M0.00</div></div>
       </div>
@@ -1985,8 +1985,6 @@ function fillSales(r){
   renderSCorr();
   renderShortRcpt();
   renderSStatus(); applySRole(); recalcS();
-  // Async float cross-check — populate the match/mismatch indicator next to Opening float
-  checkFloatMatch(r.runner, r.date);
 }
 function cashCounted(){ let sum=0; document.querySelectorAll('#denomBody tr').forEach(tr=>{ sum+=(parseFloat(tr.dataset.val)||0)*(parseFloat(tr.querySelector('input').value)||0); }); return sum; }
 function addMLine(btn){
@@ -2296,18 +2294,10 @@ function renderSummary(){
   if(!sumRecords.length){ el.innerHTML='<span class="muted">No cash-ups for this date yet.</span>'; recalcSummary(); return; }
   const cols=SALES_PAY;
   const nonCashCols=cols.filter(c=>c!=='Cash');
-  let head='<tr><th>Employee</th><th class="num">Cash</th><th class="num">Tips</th><th class="num">Net cash</th>'+nonCashCols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Difference</th><th>Float check</th><th>Status</th></tr>';
-  let body=''; const gt={}; let gtTotal=0, gtDiff=0, gtTips=0, gtNet=0, gtHand=0;
+  let head='<tr><th>Employee</th><th class="num">Cash</th><th class="num">Tips</th><th class="num">Net cash</th>'+nonCashCols.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'<th class="num">Total</th><th class="num">Difference</th><th>Status</th></tr>';
+  let body=''; const gt={}; let gtTotal=0, gtDiff=0, gtTips=0, gtNet=0, gtHand=0, gtReportedFloat=0;
   sumRecords.forEach(r=>{ const t=drawerTotals(r); const hand=t.cash+t.paidShortage; const net=hand-t.tips;
     const shortage=t.diff<0?-t.diff:0; const remaining=Math.max(0,shortage-(r.sales&&r.sales.explainedAmt||0)); const adjDiff=t.diff>=0?t.diff:-remaining;
-    // Float cross-check: compare petty cash float given vs opening float the waitron reported
-    const rKey=(r.runner||'').trim().toLowerCase();
-    const pcFloat=sumWFloatMap.hasOwnProperty(rKey)?sumWFloatMap[rKey]:null;
-    const repFloat=r.cash_float||0;
-    let floatCell;
-    if(pcFloat===null){ floatCell='<td class="muted" style="font-size:12px;" title="No petty cash record found for this waitron on this date">—</td>'; }
-    else if(Math.abs(pcFloat-repFloat)<0.005){ floatCell='<td style="color:var(--good,#16a34a);font-size:12px;" title="Petty cash float matches reported opening float">✓ '+M(pcFloat)+'</td>'; }
-    else { floatCell='<td style="color:#dc2626;font-weight:700;font-size:12px;" title="Mismatch — petty cash: '+M(pcFloat)+' | reported opening: '+M(repFloat)+'">⚠ PC '+M(pcFloat)+' / Rpt '+M(repFloat)+'</td>'; }
     body+='<tr><td>'+esc(r.runner||'—')+'</td>'
       +'<td class="num"><b>'+M(hand)+'</b></td>'
       +'<td class="num">'+M(t.tips)+'</td>'
@@ -2315,18 +2305,30 @@ function renderSummary(){
       +nonCashCols.map(c=>{ const v=t.byType[c]||0; gt[c]=(gt[c]||0)+v; return '<td class="num">'+M(v)+'</td>'; }).join('')
       +'<td class="num">'+M(t.total)+'</td>'
       +'<td class="num variance '+(adjDiff<0?'short':'ok')+'">'+(adjDiff>=0?'+ ':'– ')+M(Math.abs(adjDiff))+(t.paidShortage>0?' <span class="muted" style="font-size:10px;">(+paid)</span>':'')+(r.sales&&r.sales.explainedAmt>0?' <span class="muted" style="font-size:10px;">(adj)</span>':'')+(t.hasCorr?' <span style="color:var(--primary,#2563eb);font-size:10px;">(corrected)</span>':'')+'</td>'
-      +floatCell
       +'<td><span class="badge '+r.status+'">'+r.status+'</span></td></tr>';
     gt['Cash']=(gt['Cash']||0)+hand;
-    gtTotal+=t.total; gtDiff+=t.diff; gtTips+=t.tips; gtNet+=net; gtHand+=hand; });
+    gtTotal+=t.total; gtDiff+=t.diff; gtTips+=t.tips; gtNet+=net; gtHand+=hand;
+    gtReportedFloat+=(r.cash_float||0); });
   let foot='<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Grand total</td>'
     +'<td class="num">'+M(gtHand)+'</td>'
     +'<td class="num">'+M(gtTips)+'</td>'
     +'<td class="num">'+M(gtNet)+'</td>'
     +nonCashCols.map(c=>'<td class="num">'+M(gt[c]||0)+'</td>').join('')
     +'<td class="num">'+M(gtTotal)+'</td>'
-    +'<td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td><td></td></tr>';
-  el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>';
+    +'<td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
+  // Aggregate starting-drawer cross-check: total petty cash given vs total opening floats reported
+  const totalPetty=Object.values(sumWFloatMap).reduce((s,v)=>s+v,0);
+  let floatCheckHtml='';
+  if(totalPetty>0||gtReportedFloat>0){
+    const match=Math.abs(totalPetty-gtReportedFloat)<0.005;
+    const diff=gtReportedFloat-totalPetty;
+    floatCheckHtml='<div style="margin-top:10px;padding:10px 14px;border-radius:8px;border:2px solid '+(match?'var(--good,#16a34a)':'#dc2626')+';background:'+(match?'rgba(22,163,74,.07)':'rgba(220,38,38,.07)')+';font-size:13px;">'
+      +(match
+        ? '<b style="color:var(--good,#16a34a);">✓ Starting drawer check passed</b> — Petty cash total <b>'+M(totalPetty)+'</b> matches the sum of all reported opening floats <b>'+M(gtReportedFloat)+'</b>.'
+        : '<b style="color:#dc2626;">⚠ Starting drawer mismatch</b> — Petty cash gave out <b>'+M(totalPetty)+'</b> but waitrons\' reported opening floats add up to <b>'+M(gtReportedFloat)+'</b> (difference: <b>'+M(Math.abs(diff))+'</b> '+(diff>0?'over':'under')+').')
+      +'</div>';
+  }
+  el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>'+floatCheckHtml;
   recalcSummary();
 }
 function recalcSummary(){
