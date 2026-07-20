@@ -1430,7 +1430,9 @@ async function refreshList(){
     }
     const pval = /^\d{4}-\d{2}-\d{2}$/.test(dateFilter)?dateFilter:'';
     const back='<div class="row-actions no-print" style="margin-bottom:10px;align-items:center;gap:8px;flex-wrap:wrap;"><button class="btn ghost small" onclick="setDateFilter(null)">← All dates</button><input type="date" value="'+pval+'" style="width:auto;max-width:200px;" onchange="if(this.value)setDateFilter(this.value)"> <b>📅 '+esc(dateFilter)+'</b></div>';
-    const dayRows=rows.filter(r=>(r.date||'(no date)')===dateFilter);
+    let dayRows=rows.filter(r=>(r.date||'(no date)')===dateFilter);
+    // Waitrons don't need to see approved records — they're done and filed.
+    if(ME.role==='waitron') dayRows=dayRows.filter(r=>r.status!=='approved');
     wrap.innerHTML=back+(dayRows.length?'':'<p class="muted">Nothing on this date.</p>');
     dayRows.forEach(r=>{ const el=document.createElement('div'); el.className='history-item'; el.innerHTML=inner(r); wrap.appendChild(el); });
   }catch(e){wrap.innerHTML='<p class="muted">Could not load: '+esc(e.message)+'</p>';}
@@ -1924,10 +1926,14 @@ function openSales(id){
     const myName=(ME.name||'').trim().toLowerCase();
     if(myName && myName!=='waitron'){
       Store.list().then(rows=>{
-        const existing=rows.find(r=>r.type==='sales'&&(r.status==='draft'||r.status==='returned')&&
+        const existing=rows.find(r=>r.type==='sales'&&
+          ['draft','returned','submitted'].includes(r.status)&&
           (r.runner||'').trim().toLowerCase()===myName);
         if(existing){
-          toast('Opening your '+(existing.status==='returned'?'sent-back sheet — please correct and resubmit':'unfinished draft')+'.');
+          const msg=existing.status==='returned'?'sent-back sheet — please correct and resubmit':
+            existing.status==='submitted'?'submitted sheet — waiting for manager review. No need to create another.':
+            'unfinished draft';
+          toast('Opening your '+msg);
           fillSales(existing);
         } else {
           current=blankSales(); current.runner=ME.name; fillSales(current);
@@ -2075,6 +2081,24 @@ function setSStatus(s){
     if(tips && tips.value.trim()===''){alert('Enter the tips amount before approving — use 0 if there are none.');return;}
     current.approved_at=new Date().toISOString();
   }
+  // Duplicate guard: named waitrons cannot submit if another record for same date already exists.
+  if(s==='submitted' && ME.role==='waitron'){
+    const myName=(ME.name||'').trim().toLowerCase();
+    const recDate=document.getElementById('sDate').value;
+    if(myName && myName!=='waitron' && recDate){
+      Store.list().then(rows=>{
+        const dupe=rows.find(r=>r.type==='sales'&&String(r.id)!==String(current.id||'')&&
+          (r.runner||'').trim().toLowerCase()===myName&&r.date===recDate&&
+          (r.status==='submitted'||r.status==='approved'));
+        if(dupe){ alert('You already have '+(dupe.status==='approved'?'an approved':'a submitted')+' sheet for '+recDate+'. You cannot submit a duplicate — open your existing record from the list.'); return; }
+        _commitSStatus(s);
+      });
+      return;
+    }
+  }
+  _commitSStatus(s);
+}
+function _commitSStatus(s){
   // Gather BEFORE changing status or applying role locks — fields are still fully accessible here.
   // Without this, applySRole() would disable tips/float/expected inputs first, and gatherSales()
   // inside saveSales() could then read stale/zero values, wiping data on send-back.
