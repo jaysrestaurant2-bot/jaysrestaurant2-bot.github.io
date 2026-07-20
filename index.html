@@ -1408,16 +1408,16 @@ async function refreshList(){
       const isStaff=(ME.role==='waitron'||ME.role==='runner');
       // For authoriser: show all active records (draft, returned, authorised) so they can see what's in progress.
       // For approver/viewer: show submitted records waiting for review.
-      // For staff (waitron/runner): show draft and returned needing their attention.
+      // For staff (waitron/runner): show draft, returned, and submitted (pending approval) — hide only approved.
       const attn = isStaff
-        ? rows.filter(r=>r.status==='returned'||r.status==='draft')
+        ? rows.filter(r=>r.status==='returned'||r.status==='draft'||r.status==='submitted')
         : ME.role==='authoriser'
           ? rows.filter(r=>r.status==='draft'||r.status==='returned'||r.status==='authorised')
           : rows.filter(r=>r.status==='submitted');
       attn.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
       let attnHtml='';
       if(attn.length){
-        const label=isStaff?'Needs your attention — sent back or unfinished':ME.role==='authoriser'?'Active purchase orders':'Waiting for your review';
+        const label=isStaff?'Pending records — submitted, sent back, or unfinished':ME.role==='authoriser'?'Active purchase orders':'Waiting for your review';
         attnHtml='<div style="border:2px solid #b45309;background:rgba(180,83,9,.06);border-radius:10px;margin:0 0 14px;padding:10px 14px;">'
           +'<b style="color:#b45309;">⚠ '+esc(label)+' ('+attn.length+')</b>'
           + attn.map(r=>'<div class="history-item">'+inner(r)+'</div>').join('')
