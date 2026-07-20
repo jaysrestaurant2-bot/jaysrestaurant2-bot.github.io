@@ -1384,9 +1384,7 @@ async function refreshList(){
     rows=rows.filter(r=> (r.type||'po')===listMode);
     if((listMode==='waitron'||listMode==='sales') && ME.role==='waitron'){
       const meName=(ME.name||'').trim().toLowerCase();
-      // If the account has a generic shared name 'waitron', show all records so every waitron can see theirs.
-      // If a named individual account is used (e.g. 'Morie'), filter to their records only.
-      if(meName && meName!=='waitron'){ rows=rows.filter(r=>(r.runner||'').trim().toLowerCase()===meName); }
+      if(meName){ rows=rows.filter(r=>(r.runner||'').trim().toLowerCase()===meName); }
     }
     if(!rows.length){wrap.innerHTML='<p class="muted">Nothing here yet'+(ME.role==='authoriser'?' — click “+ New”.':'.')+'</p>';return;}
     const canDelete = ME.role==='authoriser';
@@ -1692,7 +1690,7 @@ function fillWaitron(r){
   document.getElementById('wApprover').value=r.approver||'';
   document.getElementById('wApproverComments').value=r.approver_comments||'';
   const sel=document.getElementById('wPerson');
-  let names=WAITRON_NAMES.filter(n=>n.toLowerCase()!=='waitron'); if(r.runner && r.runner.toLowerCase()!=='waitron' && !names.includes(r.runner)) names=[r.runner].concat(names);
+  let names=[...WAITRON_NAMES]; if(r.runner && !names.includes(r.runner)) names=[r.runner].concat(names);
   const wDef=r.runner||(ME.role==='waitron'?ME.name:'')||names[0]||'';
   sel.innerHTML=names.map(n=>'<option'+(n===wDef?' selected':'')+'>'+esc(n)+'</option>').join('');
   const ws=r.sales||{};
@@ -1921,10 +1919,8 @@ function blankSales(){
 function openSales(id){
   if(id){ Store.list().then(rows=>{ const r=rows.find(x=>String(x.id)===String(id)); if(r)fillSales(r); }); }
   else if(ME.role==='waitron'){
-    // For named waitron accounts: check for an existing draft/returned sheet and open it instead of creating a duplicate.
-    // For the shared generic "Waitron" account: skip the check (can't tell which person is logging in).
     const myName=(ME.name||'').trim().toLowerCase();
-    if(myName && myName!=='waitron'){
+    if(myName){
       Store.list().then(rows=>{
         const existing=rows.find(r=>r.type==='sales'&&
           ['draft','returned','submitted'].includes(r.status)&&
@@ -1959,9 +1955,9 @@ function fillSales(r){
   document.getElementById('sApprover').value=r.approver||'';
   document.getElementById('sApproverComments').value=r.approver_comments||'';
   const sel=document.getElementById('sPerson');
-  let names=WAITRON_NAMES.filter(n=>n.toLowerCase()!=='waitron');
-  if(ME.role==='waitron' && ME.name && ME.name.toLowerCase()!=='waitron' && !names.includes(ME.name)) names.unshift(ME.name);
-  if(r.runner && r.runner.toLowerCase()!=='waitron' && !names.includes(r.runner)) names.unshift(r.runner);
+  let names=[...WAITRON_NAMES];
+  if(ME.role==='waitron' && ME.name && !names.includes(ME.name)) names.unshift(ME.name);
+  if(r.runner && !names.includes(r.runner)) names.unshift(r.runner);
   const sDef=r.runner||(ME.role==='waitron'?ME.name:'')||names[0]||'';
   sel.innerHTML=names.map(n=>'<option'+(n===sDef?' selected':'')+'>'+esc(n)+'</option>').join('');
   const db=document.getElementById('denomBody'); db.innerHTML='';
@@ -2085,7 +2081,7 @@ function setSStatus(s){
   if(s==='submitted' && ME.role==='waitron'){
     const myName=(ME.name||'').trim().toLowerCase();
     const recDate=document.getElementById('sDate').value;
-    if(myName && myName!=='waitron' && recDate){
+    if(myName && recDate){
       Store.list().then(rows=>{
         const dupe=rows.find(r=>r.type==='sales'&&String(r.id)!==String(current.id||'')&&
           (r.runner||'').trim().toLowerCase()===myName&&r.date===recDate&&
