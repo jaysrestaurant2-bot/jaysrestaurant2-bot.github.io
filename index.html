@@ -2215,7 +2215,7 @@ async function loadSummary(){
   sumWFloatMap={};
   rows.filter(r=>r.type==='waitron' && r.date===date && ['authorised','submitted','approved'].includes(r.status))
     .forEach(r=>{
-      const sdTotal=(r.purchases||[]).filter(p=>(p.category||'').trim().toLowerCase()==='starting drawer').reduce((s,p)=>s+(p.amount||0),0);
+      const sdTotal=(r.purchases||[]).filter(p=>(p.category||'').trim().toLowerCase()==='starting drawer'||(p.note||'').trim().toLowerCase().includes('starting drawer')).reduce((s,p)=>s+(p.amount||0),0);
       if(sdTotal>0) sumWFloatMap[(r.runner||'').trim().toLowerCase()]=sdTotal;
     });
   const ded=(sumDayRec&&sumDayRec.sales&&sumDayRec.sales.deductions)||{};
