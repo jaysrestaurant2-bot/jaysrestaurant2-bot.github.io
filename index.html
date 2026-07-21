@@ -258,6 +258,8 @@
 
     <!-- RUNNER SECTION -->
     <div class="card" id="secRunner">
+      <!-- Cash-in-hand summary: shows when runner has a carry-forward from a previous run -->
+      <div id="cashInHandSummary" style="display:none;background:rgba(79,70,229,.07);border:2px solid rgba(79,70,229,.3);border-radius:10px;padding:14px 16px;margin-bottom:18px;"></div>
       <h2>Purchases <span class="who">Runner</span></h2>
       <p class="hint">One line per shop / receipt. Pick how it was paid (Cash, M-Pesa, Credit, or a bank card) and the amount. Only Cash comes out of the runner's float.</p>
       <div style="overflow-x:auto;">
@@ -841,6 +843,33 @@ function updateFloatNetRow(tr){
   const cell=tr.querySelector('.netCashCell'); if(!cell)return;
   cell.innerHTML=_floatNetHtml(floatVal,carryAmt);
 }
+function updateCashInHand(){
+  const el=document.getElementById('cashInHandSummary'); if(!el)return;
+  const perRunner=[...document.querySelectorAll('#floatBody tr')].map(tr=>({
+    name:(tr.querySelector('.floatRunner')||{}).value||'',
+    float:parseFloat((tr.querySelector('.floatAmt')||{}).value)||0,
+    bf:tr._carryFrom?(tr._carryFrom.amount||0):0
+  })).filter(r=>r.name&&(r.float>0||r.bf>0));
+  if(!perRunner.some(r=>r.bf>0)){el.style.display='none';return;}
+  const totBf=perRunner.reduce((s,r)=>s+r.bf,0);
+  const totF=perRunner.reduce((s,r)=>s+r.float,0);
+  const rowsHtml=perRunner.map(r=>
+    `<tr><td><b>${esc(r.name)}</b></td>`+
+    `<td class="num" style="color:#4f46e5;font-weight:700;">${r.bf>0?M(r.bf):'<span class="muted">—</span>'}</td>`+
+    `<td class="num">${M(r.float)}</td>`+
+    `<td class="num" style="font-weight:800;font-size:15px;color:#4f46e5;">${M(r.bf+r.float)}</td></tr>`
+  ).join('');
+  const footer=perRunner.length>1
+    ?`<tr style="font-weight:800;border-top:2px solid rgba(79,70,229,.4);">`+
+      `<td>Total</td><td class="num" style="color:#4f46e5;">${M(totBf)}</td>`+
+      `<td class="num">${M(totF)}</td><td class="num" style="color:#4f46e5;">${M(totBf+totF)}</td></tr>`:'';
+  el.innerHTML=
+    `<div style="font-weight:700;margin-bottom:10px;font-size:14px;color:#4f46e5;">💼 Cash in hand this run</div>`+
+    `<table style="width:100%;"><thead><tr>`+
+      `<th>Runner</th><th class="num">Cash B/F (prev run)</th><th class="num">Float today</th><th class="num">Total in hand</th>`+
+    `</tr></thead><tbody>${rowsHtml}${footer}</tbody></table>`;
+  el.style.display='';
+}
 
 /* ---------- Recalc ---------- */
 function recalc(){
@@ -903,6 +932,7 @@ function recalc(){
   renderRecon(R);
   renderBalanceHandling(R);
   renderCarryFwdBanner();
+  updateCashInHand();
   applyRunnerVisibility();
 }
 function renderRunnerBreakdown(R){
