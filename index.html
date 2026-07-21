@@ -845,11 +845,14 @@ function updateFloatNetRow(tr){
 }
 function updateCashInHand(){
   const el=document.getElementById('cashInHandSummary'); if(!el)return;
-  const perRunner=[...document.querySelectorAll('#floatBody tr')].map(tr=>({
-    name:(tr.querySelector('.floatRunner')||{}).value||'',
-    float:parseFloat((tr.querySelector('.floatAmt')||{}).value)||0,
-    bf:tr._carryFrom?(tr._carryFrom.amount||0):0
-  })).filter(r=>r.name&&(r.float>0||r.bf>0));
+  const perRunner=[...document.querySelectorAll('#floatBody tr')].map(tr=>{
+    const name=(tr.querySelector('.floatRunner')||{}).value||'';
+    const float=parseFloat((tr.querySelector('.floatAmt')||{}).value)||0;
+    // Use saved carry_from first; fall back to pendingCarryForwards for historical POs
+    let bf=tr._carryFrom?(tr._carryFrom.amount||0):0;
+    if(!bf && name){ const pend=(pendingCarryForwards||[]).find(p=>p.runner===name); if(pend) bf=pend.amount||0; }
+    return {name,float,bf};
+  }).filter(r=>r.name&&(r.float>0||r.bf>0));
   if(!perRunner.some(r=>r.bf>0)){el.style.display='none';return;}
   const totBf=perRunner.reduce((s,r)=>s+r.bf,0);
   const totF=perRunner.reduce((s,r)=>s+r.float,0);
@@ -1234,7 +1237,7 @@ function show(id,on){const e=document.getElementById(id); if(e)e.style.display=o
 
 /* ---------- Load / save run ---------- */
 function openRun(id){
-  if(id){ Store.list().then(rows=>{ const r=rows.find(x=>String(x.id)===String(id)); if(r)fill(r); }); }
+  if(id){ Store.list().then(rows=>{ loadPendingCarryForwards(rows); const r=rows.find(x=>String(x.id)===String(id)); if(r){ fill(r); renderCarryFwdBanner(); } }); }
   else { current=blankRun(); fill(current); Store.list().then(rows=>{ loadPendingCarryForwards(rows); renderCarryFwdBanner(); }); }
   document.getElementById('listView').classList.add('hidden');
   document.getElementById('teamView').classList.add('hidden');
