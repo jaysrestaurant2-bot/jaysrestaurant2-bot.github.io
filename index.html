@@ -958,26 +958,42 @@ function renderMethodTotals(mt){
 function renderRecon(R){
   const el=document.getElementById('reconTable'); if(!el)return;
   let keys=Object.keys(R);
-  if(ME.role==='runner') keys=keys.filter(k=>k===ME.name);   // runner sees only their own reconciliation
-  keys=keys.filter(k=>{const v=R[k];return v.float||v.cash||v.card||v.trip||v.returned;});  // hide empty/stale rows
+  if(ME.role==='runner') keys=keys.filter(k=>k===ME.name);
+  keys=keys.filter(k=>{const v=R[k];return v.float||v.cash||v.card||v.trip||v.returned;});
   if(!keys.length){ el.innerHTML='<span class="muted">No floats or spend yet.</span>'; return; }
-  let tF=0,tC=0,tS=0,tR=0,tV=0;
+  // Build carry-forward (B/F) lookup per runner, excluding carries from the current PO itself
+  const currentId=current&&current.id;
+  const carryBf={};
+  document.querySelectorAll('#floatBody tr').forEach(tr=>{
+    const name=(tr.querySelector('.floatRunner')||{}).value||''; if(!name)return;
+    let bf=tr._carryFrom?(tr._carryFrom.amount||0):0;
+    if(!bf){const pend=(pendingCarryForwards||[]).find(p=>p.runner===name&&String(p.run_id)!==String(currentId));if(pend)bf=pend.amount||0;}
+    if(bf>0.005) carryBf[name]=(carryBf[name]||0)+bf;
+  });
+  const hasBf=Object.keys(carryBf).length>0;
+  let tF=0,tBf=0,tC=0,tS=0,tR=0,tV=0;
   const body=keys.map(k=>{
     const v=R[k];
+    const bf=carryBf[k]||0;
+    const totalCash=(v.float||0)+bf;
     // Trips are invoiced monthly — NOT deducted from the cash float
-    const netBalance=(v.float||0)-v.cash;  // positive = should return, negative = overspent
+    const netBalance=totalCash-v.cash;
     const should=Math.max(0,netBalance);
     const overspend=Math.max(0,-netBalance);
     const variance=(v.returned||0)-should;
-    tF+=v.float||0; tC+=v.cash; tS+=should; tR+=v.returned||0; tV+=variance;
+    tF+=v.float||0; tBf+=bf; tC+=v.cash; tS+=should; tR+=v.returned||0; tV+=variance;
     const vc=Math.abs(variance)<0.005?'ok':(variance<0?'short':'ok');
-    const overCell=overspend>0.005?`<span style="color:var(--bad);font-weight:700;" title="Runner spent more than float">⚠ over ${M(overspend)}</span>`:'';
-    return '<tr><td>'+esc(k)+(overCell?'<br><small>'+overCell+'</small>':'')+'</td><td class="num">'+M(v.float||0)+'</td><td class="num">'+M(v.cash)+'</td><td class="num">'+M(should)+'</td><td class="num">'+M(v.returned||0)+'</td><td class="num variance '+vc+'">'+(variance>=0?'+ ':'– ')+M(Math.abs(variance))+'</td></tr>';
+    const overCell=overspend>0.005?`<span style="color:var(--bad);font-weight:700;">⚠ over ${M(overspend)}</span>`:'';
+    const bfCell=hasBf?`<td class="num">${bf>0.005?`<span style="color:var(--good);font-weight:600;">${M(bf)}</span>`:'<span class="muted">—</span>'}</td>`:'';
+    const totalCell=hasBf?`<td class="num"><b>${M(totalCash)}</b></td>`:'';
+    return `<tr><td>${esc(k)}${overCell?'<br><small>'+overCell+'</small>':''}</td><td class="num">${M(v.float||0)}</td>${bfCell}${totalCell}<td class="num">${M(v.cash)}</td><td class="num">${M(should)}</td><td class="num">${M(v.returned||0)}</td><td class="num variance ${vc}">${variance>=0?'+ ':'– '}${M(Math.abs(variance))}</td></tr>`;
   }).join('');
-  el.innerHTML='<table><thead><tr><th>Runner</th><th class="num">Float</th><th class="num">Cash spent on stock</th><th class="num">Should return</th><th class="num">Returned</th><th class="num">Variance</th></tr></thead><tbody>'
-    + body
-    + '<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Total</td><td class="num">'+M(tF)+'</td><td class="num">'+M(tC)+'</td><td class="num">'+M(tS)+'</td><td class="num">'+M(tR)+'</td><td class="num">'+(tV>=0?'+ ':'– ')+M(Math.abs(tV))+'</td></tr>'
-    + '</tbody></table>';
+  const bfHead=hasBf?'<th class="num">Cash B/F</th><th class="num">Total in hand</th>':'';
+  const bfFoot=hasBf?`<td class="num">${M(tBf)}</td><td class="num"><b>${M(tF+tBf)}</b></td>`:'';
+  el.innerHTML=`<table><thead><tr><th>Runner</th><th class="num">Float today</th>${bfHead}<th class="num">Cash spent</th><th class="num">Should return</th><th class="num">Returned</th><th class="num">Variance</th></tr></thead><tbody>`
+    +body
+    +`<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Total</td><td class="num">${M(tF)}</td>${bfFoot}<td class="num">${M(tC)}</td><td class="num">${M(tS)}</td><td class="num">${M(tR)}</td><td class="num">${tV>=0?'+ ':'– '}${M(Math.abs(tV))}</td></tr>`
+    +'</tbody></table>';
 }
 function set(id,v){document.getElementById(id).textContent=v;}
 function flag(id,active,val,limit,okTxt,badTxt){
@@ -1043,10 +1059,21 @@ function renderBalanceHandling(R){
   if(!current||current.status!=='approved'){el.innerHTML='';return;}
   const keys=Object.keys(R).filter(k=>k!=='(unassigned)'&&(R[k].float||0)>0.005);
   if(!keys.length){el.innerHTML='<span class="muted">No floats on this run.</span>';return;}
+  // Build carry-forward (B/F) lookup per runner (from previous runs only)
+  const currentId=current&&current.id;
+  const carryBfBal={};
+  document.querySelectorAll('#floatBody tr').forEach(tr=>{
+    const name=(tr.querySelector('.floatRunner')||{}).value||''; if(!name)return;
+    let bf=tr._carryFrom?(tr._carryFrom.amount||0):0;
+    if(!bf){const pend=(pendingCarryForwards||[]).find(p=>p.runner===name&&String(p.run_id)!==String(currentId));if(pend)bf=pend.amount||0;}
+    if(bf>0.005) carryBfBal[name]=(carryBfBal[name]||0)+bf;
+  });
   const rows=keys.map(k=>{
     const v=R[k];
+    const bf=carryBfBal[k]||0;
+    const totalCash=(v.float||0)+bf;
     // Trips are invoiced monthly — NOT deducted from cash float
-    const netBalance=(v.float||0)-v.cash;  // positive = should return, negative = overspent
+    const netBalance=totalCash-v.cash;  // positive = should return, negative = overspent
     const should=Math.max(0,netBalance);
     const overspend=Math.max(0,-netBalance);
     const reportedReturn=v.returned||0;
