@@ -241,7 +241,7 @@
           <p style="margin:0 0 10px;font-size:13px;color:var(--muted);">Click <b>Apply</b> to credit the runner's existing balance against this run. The "Net cash to hand over" column will update to show how much extra cash (if any) still needs to be given.</p>
           <div id="carryFwdItems"></div>
         </div>
-        <table id="floatTable"><thead><tr><th style="min-width:160px;">Runner</th><th class="num" style="min-width:120px;">Total float (M)</th><th class="num no-print" style="min-width:140px;">Credit from prev run</th><th class="num no-print" style="min-width:160px;">Net cash to hand over</th><th class="no-print"></th></tr></thead><tbody id="floatBody"></tbody></table>
+        <table id="floatTable"><thead><tr><th style="min-width:160px;">Runner</th><th class="num" style="min-width:120px;">Float today (M)</th><th class="num no-print" style="min-width:140px;">Cash B/F (prev run)</th><th class="num no-print" style="min-width:160px;">Total cash in hand</th><th class="no-print"></th></tr></thead><tbody id="floatBody"></tbody></table>
         </div>
         <div class="row-actions no-print"><button class="btn ghost small" id="btnAddFloat" onclick="addFloat()">+ Add runner float</button></div>
       </div>
@@ -259,7 +259,7 @@
     <!-- RUNNER SECTION -->
     <div class="card" id="secRunner">
       <!-- Cash-in-hand summary: shows when runner has a carry-forward from a previous run -->
-      <div id="cashInHandSummary" style="display:none;background:rgba(79,70,229,.07);border:2px solid rgba(79,70,229,.3);border-radius:10px;padding:14px 16px;margin-bottom:18px;"></div>
+      <div id="cashInHandSummary" style="display:none;"></div>
       <h2>Purchases <span class="who">Runner</span></h2>
       <p class="hint">One line per shop / receipt. Pick how it was paid (Cash, M-Pesa, Credit, or a bank card) and the amount. Only Cash comes out of the runner's float.</p>
       <div style="overflow-x:auto;">
@@ -831,47 +831,44 @@ function addFloat(f={}){
   document.getElementById('floatBody').appendChild(tr); recalc();
 }
 function _floatNetHtml(floatVal,carryAmt){
-  if(!carryAmt||!floatVal) return `<span class="muted">—</span>`;
-  const net=Math.max(0,floatVal-carryAmt);
-  if(net<=0.005) return `<span style="color:var(--good);font-weight:700;">M0.00</span><span class="muted" style="font-size:11px;margin-left:4px;">(no top-up needed)</span>`;
-  return `<b style="color:var(--card-c);">${M(net)}</b><span class="muted" style="font-size:11px;margin-left:4px;">to give</span>`;
+  if(!carryAmt) return `<span class="muted">—</span>`;
+  return `<b style="color:#4f46e5;font-size:15px;">${M(floatVal+carryAmt)}</b>`;
 }
 function updateFloatNetRow(tr){
   if(!tr)return;
+  const name=(tr.querySelector('.floatRunner')||{}).value||'';
   const floatVal=parseFloat((tr.querySelector('.floatAmt')||{}).value)||0;
-  const carryAmt=tr._carryFrom?(tr._carryFrom.amount||0):0;
+  const currentId=current&&current.id;
+  let carryAmt=tr._carryFrom?(tr._carryFrom.amount||0):0;
+  if(!carryAmt&&name){ const pend=(pendingCarryForwards||[]).find(p=>p.runner===name&&String(p.run_id)!==String(currentId)); if(pend) carryAmt=pend.amount||0; }
   const cell=tr.querySelector('.netCashCell'); if(!cell)return;
   cell.innerHTML=_floatNetHtml(floatVal,carryAmt);
 }
-function updateCashInHand(){
-  const el=document.getElementById('cashInHandSummary'); if(!el)return;
-  const perRunner=[...document.querySelectorAll('#floatBody tr')].map(tr=>{
+function updateCashInHand(){ updateFloatCreditCells(); }
+function updateFloatCreditCells(){
+  const currentId=current&&current.id;
+  document.querySelectorAll('#floatBody tr').forEach(tr=>{
     const name=(tr.querySelector('.floatRunner')||{}).value||'';
-    const float=parseFloat((tr.querySelector('.floatAmt')||{}).value)||0;
-    // Use saved carry_from first; fall back to pendingCarryForwards for historical POs
-    let bf=tr._carryFrom?(tr._carryFrom.amount||0):0;
-    if(!bf && name){ const pend=(pendingCarryForwards||[]).find(p=>p.runner===name); if(pend) bf=pend.amount||0; }
-    return {name,float,bf};
-  }).filter(r=>r.name&&(r.float>0||r.bf>0));
-  if(!perRunner.some(r=>r.bf>0)){el.style.display='none';return;}
-  const totBf=perRunner.reduce((s,r)=>s+r.bf,0);
-  const totF=perRunner.reduce((s,r)=>s+r.float,0);
-  const rowsHtml=perRunner.map(r=>
-    `<tr><td><b>${esc(r.name)}</b></td>`+
-    `<td class="num" style="color:#4f46e5;font-weight:700;">${r.bf>0?M(r.bf):'<span class="muted">—</span>'}</td>`+
-    `<td class="num">${M(r.float)}</td>`+
-    `<td class="num" style="font-weight:800;font-size:15px;color:#4f46e5;">${M(r.bf+r.float)}</td></tr>`
-  ).join('');
-  const footer=perRunner.length>1
-    ?`<tr style="font-weight:800;border-top:2px solid rgba(79,70,229,.4);">`+
-      `<td>Total</td><td class="num" style="color:#4f46e5;">${M(totBf)}</td>`+
-      `<td class="num">${M(totF)}</td><td class="num" style="color:#4f46e5;">${M(totBf+totF)}</td></tr>`:'';
-  el.innerHTML=
-    `<div style="font-weight:700;margin-bottom:10px;font-size:14px;color:#4f46e5;">💼 Cash in hand this run</div>`+
-    `<table style="width:100%;"><thead><tr>`+
-      `<th>Runner</th><th class="num">Cash B/F (prev run)</th><th class="num">Float today</th><th class="num">Total in hand</th>`+
-    `</tr></thead><tbody>${rowsHtml}${footer}</tbody></table>`;
-  el.style.display='';
+    const floatVal=parseFloat((tr.querySelector('.floatAmt')||{}).value)||0;
+    // Carry: explicit carry_from on row takes priority; then pending (but NOT from the current PO itself)
+    let carryAmt=tr._carryFrom?(tr._carryFrom.amount||0):0;
+    if(!carryAmt&&name){
+      const pend=(pendingCarryForwards||[]).find(p=>p.runner===name&&String(p.run_id)!==String(currentId));
+      if(pend) carryAmt=pend.amount||0;
+    }
+    const creditCell=tr.querySelector('.carryCredit');
+    if(creditCell){
+      if(carryAmt>0.005){
+        const src=tr._carryFrom;
+        const title=src?`From ${esc(src.po_number||'prev run')} on ${esc(src.date||'')}`:'From previous run';
+        creditCell.innerHTML=`<span style="color:var(--good);font-weight:600;" title="${title}">${M(carryAmt)}</span>`;
+      } else {
+        creditCell.innerHTML='<span class="muted">—</span>';
+      }
+    }
+    const netCell=tr.querySelector('.netCashCell');
+    if(netCell) netCell.innerHTML=_floatNetHtml(floatVal,carryAmt);
+  });
 }
 
 /* ---------- Recalc ---------- */
