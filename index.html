@@ -1431,8 +1431,8 @@ async function refreshList(){
     const pval = /^\d{4}-\d{2}-\d{2}$/.test(dateFilter)?dateFilter:'';
     const back='<div class="row-actions no-print" style="margin-bottom:10px;align-items:center;gap:8px;flex-wrap:wrap;"><button class="btn ghost small" onclick="setDateFilter(null)">← All dates</button><input type="date" value="'+pval+'" style="width:auto;max-width:200px;" onchange="if(this.value)setDateFilter(this.value)"> <b>📅 '+esc(dateFilter)+'</b></div>';
     let dayRows=rows.filter(r=>(r.date||'(no date)')===dateFilter);
-    // Waitrons don't need to see approved records — they're done and filed.
-    if(ME.role==='waitron') dayRows=dayRows.filter(r=>r.status!=='approved');
+    // Staff (waitrons and runners) don't need to see approved records — they're done and filed.
+    if(ME.role==='waitron'||ME.role==='runner') dayRows=dayRows.filter(r=>r.status!=='approved');
     wrap.innerHTML=back+(dayRows.length?'':'<p class="muted">Nothing on this date.</p>');
     dayRows.forEach(r=>{ const el=document.createElement('div'); el.className='history-item'; el.innerHTML=inner(r); wrap.appendChild(el); });
   }catch(e){wrap.innerHTML='<p class="muted">Could not load: '+esc(e.message)+'</p>';}
