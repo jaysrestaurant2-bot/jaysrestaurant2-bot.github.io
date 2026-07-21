@@ -997,9 +997,18 @@ function loadPendingCarryForwards(rows){
   const po=rows.filter(r=>(r.type||'po')==='po');
   po.filter(r=>r.status==='approved').forEach(r=>{
     (r.floats||[]).forEach(f=>{
+      let carryAmt=0;
       if(f.balance_action==='carry_forward'&&(f.carry_amount||0)>0.005){
+        // Authoriser confirmed carry-forward with an amount
+        carryAmt=f.carry_amount;
+      } else if(!f.balance_action&&f.runner_intent==='carry_forward'){
+        // Runner declared carry-forward but authoriser never confirmed — compute from float minus cash spent
+        const cashSpent=(r.purchases||[]).filter(p=>(p.runner||'')===(f.runner||'')&&(p.method||'Cash')==='Cash').reduce((s,p)=>s+(p.amount||0),0);
+        carryAmt=Math.max(0,(f.float||0)-cashSpent-(f.returned||0));
+      }
+      if(carryAmt>0.005){
         const consumed=po.some(r2=>String(r2.id)!==String(r.id)&&(r2.floats||[]).some(f2=>f2.carry_from&&String(f2.carry_from.run_id)===String(r.id)&&f2.carry_from.runner===f.runner));
-        if(!consumed) pendingCarryForwards.push({run_id:r.id,po_number:r.po_number||'?',date:r.date||'',runner:f.runner,amount:f.carry_amount||0});
+        if(!consumed) pendingCarryForwards.push({run_id:r.id,po_number:r.po_number||'?',date:r.date||'',runner:f.runner,amount:carryAmt});
       }
     });
   });
@@ -1045,11 +1054,13 @@ function renderBalanceHandling(R){
     const overspend=Math.max(0,-netBalance);
     const reportedReturn=v.returned||0;
     const savedF=(current.floats||[]).find(f=>f.runner===k)||{};
-    const savedAction=savedF.balance_action||'';
+    // Fall back to runner's stated intent when authoriser hasn't confirmed balance handling yet
+    const savedAction=savedF.balance_action||(savedF.runner_intent==='carry_forward'?'carry_forward':savedF.runner_intent==='returning'?'returned':'');
     const savedVerified=savedF.verified_returned!=null?savedF.verified_returned:reportedReturn;
-    const savedCarry=savedF.carry_amount||0;
+    // Use confirmed carry_amount if set; otherwise infer from net balance (runner chose carry but no amount saved yet)
+    const savedCarry=(savedF.carry_amount||0)>0.005?(savedF.carry_amount||0):(savedAction==='carry_forward'?Math.max(0,should-savedVerified):0);
     const savedOverspendPaid=savedF.overspend_paid||'';
-    const intentLabel=savedF.runner_intent==='carry_forward'?'<span style="background:rgba(79,70,229,.1);color:#4f46e5;font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;">Runner intends to carry forward</span>':savedF.runner_intent==='returning'?'<span style="background:rgba(27,110,79,.1);color:var(--good);font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;">Runner intends to return</span>':'';
+    const intentLabel=savedF.runner_intent==='carry_forward'?'<span style="background:rgba(79,70,229,.1);color:#4f46e5;font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;">Runner declared: carry forward</span>':savedF.runner_intent==='returning'?'<span style="background:rgba(27,110,79,.1);color:var(--good);font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;">Runner declared: returning</span>':'';
     const settled=overspend<0.005&&(should<0.005||(savedAction==='returned'&&Math.abs(savedVerified-should)<0.005));
     // initial carry display
     let initCarryHtml='';
