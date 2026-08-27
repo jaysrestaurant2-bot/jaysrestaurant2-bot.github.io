@@ -612,7 +612,7 @@
     </div>
     <div class="card">
       <h2>Outstanding shortages (owed by staff)</h2>
-      <p class="hint">Across all dates — shortages marked "Owed — deduct from salary", totalled per waitron for payroll.</p>
+      <p class="hint">Grouped by month — shortages marked "Owed — deduct from salary". Use <b>✓ Mark paid</b> to clear a shortage once the waitron has settled, and <b>🖨 statement</b> to print a reference slip for the waitron.</p>
       <div id="owedTable" style="overflow-x:auto;"></div>
     </div>
   </section>
@@ -2327,17 +2327,112 @@ async function loadSummary(){
   renderOtherDeds();
   // Auto-compute petty cash from next-day waitron floats (D+1 floats were funded from D's cash)
   await syncPettyToSummaryUI(date, rows, ded);
-  const owed={}; rows.filter(r=>r.type==='sales' && r.sales && r.sales.settle==='Owed — deduct from salary').forEach(r=>{ const s=r.sales; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const rem=Math.max(0,(diff<0?-diff:0)-(s.explainedAmt||0)); if(rem>0) owed[r.runner||'?']=(owed[r.runner||'?']||0)+rem; });
-  renderOwed(owed);
+  const shortageRecs=[];
+  rows.filter(r=>r.type==='sales'&&r.sales&&r.sales.settle==='Owed — deduct from salary'&&!r.sales.shortage_cleared).forEach(r=>{
+    const s=r.sales; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0);
+    const rem=Math.max(0,(diff<0?-diff:0)-(s.explainedAmt||0));
+    if(rem>0.005) shortageRecs.push({id:r.id,runner:r.runner||'?',date:r.date||'',amount:rem});
+  });
+  renderOwed(shortageRecs);
   renderSummary();
 }
-function renderOwed(owed){
+function renderOwed(recs){
   const el=document.getElementById('owedTable'); if(!el)return;
-  const keys=Object.keys(owed).filter(k=>owed[k]>0);
-  if(!keys.length){ el.innerHTML='<span class="muted">No outstanding shortages.</span>'; return; }
-  let tot=0; el.innerHTML='<table><thead><tr><th>Waitron</th><th class="num">Owed (M)</th></tr></thead><tbody>'
-    +keys.map(k=>{tot+=owed[k];return '<tr><td>'+esc(k)+'</td><td class="num rpt-neg">'+M(owed[k])+'</td></tr>';}).join('')
-    +'<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>Total owed</td><td class="num">'+M(tot)+'</td></tr></tbody></table>';
+  if(!recs.length){ el.innerHTML='<span class="muted">No outstanding shortages.</span>'; return; }
+  // Group by month
+  const byMonth={};
+  recs.forEach(r=>{
+    const mo=r.date?r.date.slice(0,7):'unknown';
+    if(!byMonth[mo]) byMonth[mo]=[];
+    byMonth[mo].push(r);
+  });
+  const months=Object.keys(byMonth).sort((a,b)=>b.localeCompare(a));
+  let grandTot=0;
+  let html='';
+  months.forEach(mo=>{
+    const label=mo==='unknown'?'Unknown date':new Date(mo+'-01').toLocaleDateString('en-ZA',{year:'numeric',month:'long'});
+    const moRecs=byMonth[mo].sort((a,b)=>b.date.localeCompare(a.date));
+    let moTot=0;
+    // group by runner within month for statement print button
+    const runners=[...new Set(moRecs.map(r=>r.runner))];
+    html+=`<div style="margin-bottom:18px;">`;
+    html+=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">`;
+    html+=`<b style="font-size:14px;color:var(--brand);">${esc(label)}</b>`;
+    runners.forEach(runner=>{
+      const runRecs=moRecs.filter(r=>r.runner===runner);
+      html+=`<button class="btn ghost small" style="font-size:11px;padding:2px 8px;" onclick="printShortageStatement('${esc(runner)}','${mo}')">🖨 ${esc(runner)} statement</button>`;
+    });
+    html+=`</div>`;
+    html+=`<table style="width:100%;border-collapse:collapse;"><thead><tr><th>Date</th><th>Waitron</th><th class="num">Amount owed (M)</th><th class="no-print"></th></tr></thead><tbody>`;
+    moRecs.forEach(r=>{
+      moTot+=r.amount; grandTot+=r.amount;
+      const dateLabel=r.date?new Date(r.date+'T00:00').toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'}):r.date;
+      html+=`<tr><td style="font-size:13px;">${esc(dateLabel)}</td><td style="font-size:13px;">${esc(r.runner)}</td><td class="num rpt-neg" style="font-size:13px;">${M(r.amount)}</td>`;
+      html+=`<td class="no-print" style="white-space:nowrap;"><button class="btn ghost small" style="font-size:11px;padding:2px 8px;color:var(--good);" onclick="clearShortage('${r.id}')">✓ Mark paid</button></td></tr>`;
+    });
+    html+=`<tr style="font-weight:700;border-top:1px solid var(--line);background:var(--soft);"><td colspan="2" style="font-size:12px;color:var(--muted);">Total ${esc(label)}</td><td class="num" style="font-size:13px;">${M(moTot)}</td><td class="no-print"></td></tr>`;
+    html+=`</tbody></table></div>`;
+  });
+  html+=`<div style="font-weight:800;font-size:15px;border-top:2px solid var(--ink);padding-top:10px;display:flex;justify-content:space-between;"><span>Grand total owed</span><span class="rpt-neg">${M(grandTot)}</span></div>`;
+  el.innerHTML=html;
+}
+async function clearShortage(id){
+  if(!confirm('Mark this shortage as paid and remove it from the outstanding list?')) return;
+  try{
+    const rows=await Store.list();
+    const r=rows.find(x=>String(x.id)===String(id)); if(!r){toast('Record not found');return;}
+    if(!r.sales) r.sales={};
+    r.sales.shortage_cleared=true;
+    r.sales.shortage_cleared_at=new Date().toISOString();
+    await Store.save(r);
+    toast('✓ Shortage marked as paid');
+    // Reload the summary to refresh owed table
+    const dateEl=document.getElementById('sumDate'); if(dateEl&&dateEl.value) loadSalesSummary(dateEl.value);
+  } catch(e){ alert('Failed: '+e.message); }
+}
+function printShortageStatement(runner, month){
+  const rows=[...document.querySelectorAll('#owedTable tr')];
+  // Gather from rendered table for the given runner and month
+  const mo=month; // e.g. '2026-07'
+  const moLabel=new Date(mo+'-01').toLocaleDateString('en-ZA',{year:'numeric',month:'long'});
+  // Re-fetch from DOM data
+  const items=[];
+  document.querySelectorAll('#owedTable tbody tr').forEach(tr=>{
+    const cells=tr.querySelectorAll('td');
+    if(cells.length<3) return;
+    const dateText=cells[0].textContent.trim();
+    const runnerText=cells[1].textContent.trim();
+    const amtText=cells[2].textContent.trim();
+    if(runnerText===runner && dateText&&amtText&&amtText.startsWith('M')){
+      // check month from date
+      items.push({date:dateText,amount:amtText});
+    }
+  });
+  if(!items.length){alert('No data to print.');return;}
+  const totalAmt=items.reduce((s,i)=>s+parseFloat(i.amount.replace('M','').replace(',',''))||0,0);
+  const w=window.open('','_blank','width=700,height=600');
+  w.document.write(`<!DOCTYPE html><html><head><title>Shortage Statement</title><style>
+    body{font-family:sans-serif;margin:40px;color:#111;}
+    h1{font-size:20px;margin-bottom:4px;}
+    p{margin:4px 0;font-size:14px;}
+    table{width:100%;border-collapse:collapse;margin-top:20px;}
+    th,td{padding:8px 10px;border-bottom:1px solid #ddd;font-size:14px;}
+    th{text-align:left;background:#f5f5f5;}
+    .num{text-align:right;}
+    .tot{font-weight:800;border-top:2px solid #111;}
+    .sign{margin-top:50px;border-top:1px solid #999;padding-top:8px;font-size:13px;color:#555;}
+  </style></head><body>
+  <h1>Shortage Statement — ${esc(runner)}</h1>
+  <p>Period: <b>${esc(moLabel)}</b></p>
+  <p>Issued: ${new Date().toLocaleDateString('en-ZA',{day:'2-digit',month:'long',year:'numeric'})}</p>
+  <table><thead><tr><th>Date</th><th class="num">Amount owed (M)</th></tr></thead><tbody>
+  ${items.map(i=>`<tr><td>${esc(i.date)}</td><td class="num">${esc(i.amount)}</td></tr>`).join('')}
+  <tr class="tot"><td>Total owed</td><td class="num">M${totalAmt.toLocaleString('en-ZA',{minimumFractionDigits:2})}</td></tr>
+  </tbody></table>
+  <p style="margin-top:20px;font-size:13px;color:#555;">Please settle the above amount at the earliest convenience. Deductions may be made from salary if not settled.</p>
+  <div class="sign">Acknowledged by: ${esc(runner)} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date: _______________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Signature: _______________</div>
+  </body></html>`);
+  w.document.close(); w.print();
 }
 function renderSCorr(){
   const el=document.getElementById('sCorrList'); if(!el) return;
