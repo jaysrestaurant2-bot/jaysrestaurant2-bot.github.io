@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -2387,7 +2387,7 @@ async function clearShortage(id){
     await Store.save(r);
     toast('✓ Shortage marked as paid');
     // Reload the summary to refresh owed table
-    const dateEl=document.getElementById('sumDate'); if(dateEl&&dateEl.value) loadSalesSummary(dateEl.value);
+    loadSummary();
   } catch(e){ alert('Failed: '+e.message); }
 }
 function printShortageStatement(runner, month){
@@ -2792,4 +2792,3 @@ function reportMonthlyCash(month,rows){
 </script>
 </body>
 </html>
- 
