@@ -170,7 +170,8 @@
         <button class="btn ghost small" id="manageTeamBtn" onclick="showTeam()" style="display:none;">👥 Manage team</button>
         <button class="btn ghost small" id="salesSummaryBtn" onclick="openSalesSummary()" style="display:none;">📊 Daily summary</button>
         <button class="btn ghost small" id="shortagesBtn" onclick="openShortages()" style="display:none;">💸 Shortages (month)</button>
-        <button class="btn ghost small" id="reportsBtn" onclick="openReports()" style="display:none;">📋 Reports</button>
+        <button class="btn ghost small" id="drawerRecBtn" onclick="openDrawerRecord()" style="display:none;">📈 Drawer record</button>
+        <button class="btn ghost small" id="reportsBtn"onclick="openReports()" style="display:none;">📋 Reports</button>
         <button class="btn ghost small" onclick="refreshList()">↻ Refresh</button>
         <button class="btn primary small" id="newRunBtn" onclick="newRecord()">+ New</button>
       </div>
@@ -636,6 +637,30 @@
       <h2>Owed per waitron (this month)</h2>
       <p class="hint">Only the unexplained "deduct from salary" amounts — ready for payroll.</p>
       <div id="shOwed" style="overflow-x:auto;"></div>
+    </div>
+  </section>
+
+  <!-- DRAWER RECORD (daily / weekly / monthly) -->
+  <section id="drawerView" class="hidden">
+    <div class="topbar no-print">
+      <button class="btn ghost small" onclick="showList()">← Back to list</button>
+      <div class="row-actions" style="margin:0;align-items:center;">
+        <button class="btn primary small" id="drPerDay" onclick="setDrawerPeriod('day')">Daily</button>
+        <button class="btn ghost small" id="drPerWeek" onclick="setDrawerPeriod('week')">Weekly</button>
+        <button class="btn ghost small" id="drPerMonth" onclick="setDrawerPeriod('month')">Monthly</button>
+        <input type="date" id="drDate" onchange="loadDrawerRecord()" style="width:auto;">
+        <button class="btn ghost small" onclick="printReport()">🖨 Print / PDF</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Drawer record — <span id="drLabel">—</span></h2>
+      <p class="hint">Cash-up result for every waitron: <b>short</b> (red), <b>over</b> (amber), <b>balanced</b> (green). Only <b>approved</b> cash-ups are counted. <b>Consistency</b> = share of counted drawers that were not short.</p>
+      <div id="drSummary" style="overflow-x:auto;"></div>
+    </div>
+    <div class="card">
+      <h2>Day by day</h2>
+      <p class="hint">One square per day: green balanced · amber over · red short · grey no approved cash-up. Tap a square to open that day.</p>
+      <div id="drGrid" style="overflow-x:auto;"></div>
     </div>
   </section>
 
@@ -1506,7 +1531,7 @@ async function refreshList(){
   }catch(e){wrap.innerHTML='<p class="muted">Could not load: '+esc(e.message)+'</p>';}
 }
 async function deleteRun(id){ if(!confirm('Delete this run?'))return; await Store.remove(id); refreshList(); }
-function showList(){['detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView','reportsView'].forEach(id=>document.getElementById(id).classList.add('hidden'));document.getElementById('listView').classList.remove('hidden');updateModeUI();refreshList();}
+function showList(){['detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView','drawerView','reportsView'].forEach(id=>document.getElementById(id).classList.add('hidden'));document.getElementById('listView').classList.remove('hidden');updateModeUI();refreshList();}
 function showTeam(){document.getElementById('listView').classList.add('hidden');document.getElementById('detailView').classList.add('hidden');document.getElementById('teamView').classList.remove('hidden');renderTeam();}
 async function renderTeam(){
   await loadTeam();
@@ -1636,6 +1661,7 @@ function buildPrintReport(){
     else if(vis('salesView')) pa.innerHTML=reportSales();
     else if(vis('salesSummaryView')) pa.innerHTML=reportSummary();
     else if(vis('shortagesView')) pa.innerHTML=reportShortages();
+    else if(vis('drawerView')) pa.innerHTML=reportDrawerRecord();
     else pa.innerHTML='';
   }catch(e){ pa.innerHTML='<p>Could not build report: '+esc(e.message)+'</p>'; }
 }
@@ -1732,6 +1758,7 @@ function updateModeUI(){
   const mgrSales = (listMode==='sales' && ME.role!=='waitron' && ME.role!=='runner');
   const ssb=document.getElementById('salesSummaryBtn'); if(ssb) ssb.style.display=mgrSales?'':'none';
   const shb=document.getElementById('shortagesBtn'); if(shb) shb.style.display=mgrSales?'':'none';
+  const drb=document.getElementById('drawerRecBtn'); if(drb) drb.style.display=mgrSales?'':'none';
   const rb=document.getElementById('reportsBtn'); if(rb) rb.style.display=(ME.role==='authoriser'||ME.role==='approver')?'':'none';
 }
 function newRecord(){ if(listMode==='waitron') openWaitron(null); else if(listMode==='sales') openSales(null); else openRun(null); }
@@ -2628,6 +2655,81 @@ function reportShortages(){
   }));
   const keys=Object.keys(shOwedMap).filter(k=>shOwedMap[k]>0).sort((a,b)=>shOwedMap[b]-shOwedMap[a]); let tot=0; keys.forEach(k=>tot+=shOwedMap[k]);
   if(keys.length) h+='<h3>Owed per waitron</h3>'+rptTable(['Waitron','Owed (M)'], keys.map(k=>[esc(k),M(shOwedMap[k])]).concat([['Total',M(tot)]]));
+  return h;
+}
+
+/* ========================= DRAWER RECORD (daily / weekly / monthly) ========================= */
+let drPeriod='day', drData=null;
+function _isoAdd(iso,n){ const d=new Date(iso+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+function drawerRange(anchor,period){
+  if(period==='day') return {from:anchor,to:anchor,label:anchor};
+  if(period==='week'){ const dow=(new Date(anchor+'T00:00:00Z').getUTCDay()+6)%7; const from=_isoAdd(anchor,-dow); const to=_isoAdd(from,6); return {from,to,label:'Week '+from+' → '+to}; }
+  const from=anchor.slice(0,8)+'01'; const nd=new Date(from+'T00:00:00Z'); nd.setUTCMonth(nd.getUTCMonth()+1); const to=_isoAdd(nd.toISOString().slice(0,10),-1);
+  return {from,to,label:new Date(from+'T00:00:00Z').toLocaleDateString('en-ZA',{year:'numeric',month:'long',timeZone:'UTC'})};
+}
+function openDrawerRecord(){
+  ['listView','detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView','reportsView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  document.getElementById('drawerView').classList.remove('hidden');
+  const d=document.getElementById('drDate'); if(!d.value) d.value=new Date().toISOString().slice(0,10);
+  loadDrawerRecord();
+}
+function setDrawerPeriod(p){
+  drPeriod=p;
+  [['day','drPerDay'],['week','drPerWeek'],['month','drPerMonth']].forEach(([k,id])=>{ document.getElementById(id).className='btn '+(k===p?'primary':'ghost')+' small'; });
+  loadDrawerRecord();
+}
+async function loadDrawerRecord(){
+  const anchor=document.getElementById('drDate').value; if(!anchor) return;
+  const rg=drawerRange(anchor,drPeriod);
+  document.getElementById('drLabel').textContent=rg.label;
+  let rows=[]; try{ rows=await Store.list(); }catch(e){}
+  const inRange=rows.filter(r=>r.type==='sales' && r.date>=rg.from && r.date<=rg.to);
+  const people={};
+  inRange.forEach(r=>{
+    const name=(r.runner||'?').trim()||'?'; const p=people[name]=people[name]||{name,days:{},pending:0};
+    if(r.status!=='approved'){ p.pending++; return; }
+    const s=r.sales||{}; const diff=(s.pay||[]).reduce((a,x)=>a+((x.counted||0)-(x.expected||0)),0);
+    const short=diff<-0.005?-diff:0; const remaining=Math.max(0,short-(s.explainedAmt||0));
+    const d=p.days[r.date]=p.days[r.date]||{diff:0,short:0,remaining:0,id:r.id};
+    d.diff+=diff; d.short+=short; d.remaining+=remaining;
+  });
+  const list=Object.values(people).map(p=>{
+    const ds=Object.values(p.days); const n=ds.length;
+    const shortDays=ds.filter(d=>d.diff<-0.005).length, overDays=ds.filter(d=>d.diff>0.005).length, balDays=n-shortDays-overDays;
+    return Object.assign(p,{n,shortDays,overDays,balDays,totalShort:ds.reduce((a,d)=>a+d.short,0),totalOver:ds.reduce((a,d)=>a+(d.diff>0.005?d.diff:0),0),owed:ds.reduce((a,d)=>a+d.remaining,0),consistency:n?Math.round((n-shortDays)/n*100):null});
+  }).sort((a,b)=>(b.totalShort-a.totalShort)||a.name.localeCompare(b.name));
+  drData={rg,list};
+  renderDrawerRecord();
+}
+function _drCls(c){ return c==null?'':(c>=90?'ok':(c>=70?'':'over')); }
+function renderDrawerRecord(){
+  const {rg,list}=drData;
+  const sEl=document.getElementById('drSummary'), gEl=document.getElementById('drGrid');
+  if(!list.length){ sEl.innerHTML='<span class="muted">No cash-ups in this period.</span>'; gEl.innerHTML=''; return; }
+  let tn=0,ts=0,tov=0,to=0;
+  const body=list.map(p=>{ tn+=p.n; ts+=p.totalShort; tov+=p.totalOver; to+=p.owed;
+    const cons=p.consistency==null?'—':'<span class="flag '+_drCls(p.consistency)+'">'+p.consistency+'%</span>';
+    return '<tr><td><b>'+esc(p.name)+'</b>'+(p.pending?' <span class="muted" style="font-size:11px;">('+p.pending+' not approved yet)</span>':'')+'</td><td class="num">'+p.n+'</td><td class="num">'+p.balDays+'</td><td class="num">'+p.overDays+'</td><td class="num rpt-neg">'+p.shortDays+'</td><td class="num rpt-neg">'+M(p.totalShort)+'</td><td class="num">'+M(p.totalOver)+'</td><td class="num rpt-neg">'+M(p.owed)+'</td><td class="num">'+cons+'</td></tr>'; }).join('');
+  sEl.innerHTML='<table><thead><tr><th>Waitron</th><th class="num">Drawers</th><th class="num">Balanced</th><th class="num">Over</th><th class="num">Short</th><th class="num">Total short (M)</th><th class="num">Total over (M)</th><th class="num">Still owed (M)</th><th class="num">Consistency</th></tr></thead><tbody>'+body
+    +'<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>All waitrons</td><td class="num">'+tn+'</td><td></td><td></td><td></td><td class="num rpt-neg">'+M(ts)+'</td><td class="num">'+M(tov)+'</td><td class="num rpt-neg">'+M(to)+'</td><td></td></tr></tbody></table>';
+  // Day grid
+  const days=[]; for(let d=rg.from; d<=rg.to; d=_isoAdd(d,1)) days.push(d);
+  const head=days.map(d=>'<th style="font-size:10px;padding:2px;text-align:center;">'+d.slice(8)+'</th>').join('');
+  const rowsH=list.map(p=>'<tr><td style="white-space:nowrap;padding-right:10px;"><b>'+esc(p.name)+'</b></td>'+days.map(d=>{
+    const x=p.days[d]; let col='#e5e7eb', tip='No approved cash-up';
+    if(x){ if(x.diff<-0.005){col='#dc2626';tip='Short '+M(x.short);} else if(x.diff>0.005){col='#f59e0b';tip='Over '+M(x.diff);} else {col='#16a34a';tip='Balanced';} }
+    return '<td style="padding:2px;text-align:center;"><div title="'+esc(d+' · '+tip)+'" '+(x?'onclick="verifyDay(\''+d+'\')" ':'')+'style="width:18px;height:18px;border-radius:4px;background:'+col+';'+(x?'cursor:pointer;':'')+'display:inline-block;"></div></td>';
+  }).join('')+'</tr>').join('');
+  gEl.innerHTML='<table style="border-collapse:collapse;"><thead><tr><th></th>'+head+'</tr></thead><tbody>'+rowsH+'</tbody></table>';
+}
+function reportDrawerRecord(){
+  if(!drData) return '';
+  const {rg,list}=drData;
+  let h=rptHead('Drawer record — '+rg.label,'Cash-up consistency per waitron');
+  h+=rptTable(['Waitron','Drawers','Balanced','Over','Short','Total short (M)','Total over (M)','Still owed (M)','Consistency'],
+    list.map(p=>[esc(p.name),p.n,p.balDays,p.overDays,p.shortDays,M(p.totalShort),M(p.totalOver),M(p.owed),p.consistency==null?'—':p.consistency+'%']));
+  h+='<h3>Day by day</h3>'+rptTable(['Waitron','Date','Result','Amount (M)'],
+    list.flatMap(p=>Object.keys(p.days).sort().map(d=>{ const x=p.days[d]; const res=x.diff<-0.005?'Short':(x.diff>0.005?'Over':'Balanced'); return [esc(p.name),esc(d),res,M(Math.abs(x.diff))]; })));
   return h;
 }
 
