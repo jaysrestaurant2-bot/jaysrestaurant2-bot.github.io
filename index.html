@@ -664,6 +664,41 @@
     </div>
   </section>
 
+  <!-- INDIVIDUAL WAITRON RECORD -->
+  <section id="waitronProfileView" class="hidden">
+    <div class="topbar no-print">
+      <button class="btn ghost small" onclick="openDrawerRecord()">← Drawer record</button>
+      <div class="row-actions" style="margin:0;align-items:center;">
+        <button class="btn ghost small" id="wpR30" onclick="setProfileRange(30)">30 days</button>
+        <button class="btn ghost small" id="wpR90" onclick="setProfileRange(90)">90 days</button>
+        <button class="btn primary small" id="wpR0" onclick="setProfileRange(0)">All time</button>
+        <button class="btn ghost small" onclick="printReport()">🖨 Print / PDF</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>👤 <span id="wpName">—</span> <span class="muted" style="font-size:13px;font-weight:400;" id="wpRange"></span></h2>
+      <div id="wpVerdict" style="margin:6px 0 12px;"></div>
+      <div id="wpStats"></div>
+    </div>
+    <div class="card">
+      <h2>Trend — every drawer</h2>
+      <p class="hint">Each bar is one day's cash-up. Red bars hang below the line (short), amber bars rise above it (over), green marks a balanced day. Tap a bar to open that day.</p>
+      <div id="wpChart" style="overflow-x:auto;"></div>
+    </div>
+    <div class="card">
+      <h2>Month by month</h2>
+      <div id="wpMonths" style="overflow-x:auto;"></div>
+    </div>
+    <div class="card">
+      <h2>Week by week</h2>
+      <div id="wpWeeks" style="overflow-x:auto;"></div>
+    </div>
+    <div class="card">
+      <h2>Full history</h2>
+      <div id="wpHistory" style="overflow-x:auto;"></div>
+    </div>
+  </section>
+
   <!-- REPORTS HUB -->
   <section id="reportsView" class="hidden">
     <div class="topbar no-print">
@@ -1531,7 +1566,7 @@ async function refreshList(){
   }catch(e){wrap.innerHTML='<p class="muted">Could not load: '+esc(e.message)+'</p>';}
 }
 async function deleteRun(id){ if(!confirm('Delete this run?'))return; await Store.remove(id); refreshList(); }
-function showList(){['detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView','drawerView','reportsView'].forEach(id=>document.getElementById(id).classList.add('hidden'));document.getElementById('listView').classList.remove('hidden');updateModeUI();refreshList();}
+function showList(){['detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView','drawerView','waitronProfileView','reportsView'].forEach(id=>document.getElementById(id).classList.add('hidden'));document.getElementById('listView').classList.remove('hidden');updateModeUI();refreshList();}
 function showTeam(){document.getElementById('listView').classList.add('hidden');document.getElementById('detailView').classList.add('hidden');document.getElementById('teamView').classList.remove('hidden');renderTeam();}
 async function renderTeam(){
   await loadTeam();
@@ -1661,6 +1696,7 @@ function buildPrintReport(){
     else if(vis('salesView')) pa.innerHTML=reportSales();
     else if(vis('salesSummaryView')) pa.innerHTML=reportSummary();
     else if(vis('shortagesView')) pa.innerHTML=reportShortages();
+    else if(vis('waitronProfileView')) pa.innerHTML=reportWaitronProfile();
     else if(vis('drawerView')) pa.innerHTML=reportDrawerRecord();
     else pa.innerHTML='';
   }catch(e){ pa.innerHTML='<p>Could not build report: '+esc(e.message)+'</p>'; }
@@ -2668,7 +2704,7 @@ function drawerRange(anchor,period){
   return {from,to,label:new Date(from+'T00:00:00Z').toLocaleDateString('en-ZA',{year:'numeric',month:'long',timeZone:'UTC'})};
 }
 function openDrawerRecord(){
-  ['listView','detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView','reportsView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  ['listView','detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView','waitronProfileView','reportsView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
   document.getElementById('drawerView').classList.remove('hidden');
   const d=document.getElementById('drDate'); if(!d.value) d.value=new Date().toISOString().slice(0,10);
   loadDrawerRecord();
@@ -2709,13 +2745,13 @@ function renderDrawerRecord(){
   let tn=0,ts=0,tov=0,to=0;
   const body=list.map(p=>{ tn+=p.n; ts+=p.totalShort; tov+=p.totalOver; to+=p.owed;
     const cons=p.consistency==null?'—':'<span class="flag '+_drCls(p.consistency)+'">'+p.consistency+'%</span>';
-    return '<tr><td><b>'+esc(p.name)+'</b>'+(p.pending?' <span class="muted" style="font-size:11px;">('+p.pending+' not approved yet)</span>':'')+'</td><td class="num">'+p.n+'</td><td class="num">'+p.balDays+'</td><td class="num">'+p.overDays+'</td><td class="num rpt-neg">'+p.shortDays+'</td><td class="num rpt-neg">'+M(p.totalShort)+'</td><td class="num">'+M(p.totalOver)+'</td><td class="num rpt-neg">'+M(p.owed)+'</td><td class="num">'+cons+'</td></tr>'; }).join('');
+    return '<tr><td><a href="#" onclick="openWaitronProfile('+list.indexOf(p)+');return false;" style="font-weight:700;color:var(--brand);text-decoration:underline;">'+esc(p.name)+'</a>'+(p.pending?' <span class="muted" style="font-size:11px;">('+p.pending+' not approved yet)</span>':'')+'</td><td class="num">'+p.n+'</td><td class="num">'+p.balDays+'</td><td class="num">'+p.overDays+'</td><td class="num rpt-neg">'+p.shortDays+'</td><td class="num rpt-neg">'+M(p.totalShort)+'</td><td class="num">'+M(p.totalOver)+'</td><td class="num rpt-neg">'+M(p.owed)+'</td><td class="num">'+cons+'</td></tr>'; }).join('');
   sEl.innerHTML='<table><thead><tr><th>Waitron</th><th class="num">Drawers</th><th class="num">Balanced</th><th class="num">Over</th><th class="num">Short</th><th class="num">Total short (M)</th><th class="num">Total over (M)</th><th class="num">Still owed (M)</th><th class="num">Consistency</th></tr></thead><tbody>'+body
     +'<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>All waitrons</td><td class="num">'+tn+'</td><td></td><td></td><td></td><td class="num rpt-neg">'+M(ts)+'</td><td class="num">'+M(tov)+'</td><td class="num rpt-neg">'+M(to)+'</td><td></td></tr></tbody></table>';
   // Day grid
   const days=[]; for(let d=rg.from; d<=rg.to; d=_isoAdd(d,1)) days.push(d);
   const head=days.map(d=>'<th style="font-size:10px;padding:2px;text-align:center;">'+d.slice(8)+'</th>').join('');
-  const rowsH=list.map(p=>'<tr><td style="white-space:nowrap;padding-right:10px;"><b>'+esc(p.name)+'</b></td>'+days.map(d=>{
+  const rowsH=list.map(p=>'<tr><td style="white-space:nowrap;padding-right:10px;"><a href="#" onclick="openWaitronProfile('+list.indexOf(p)+');return false;" style="font-weight:700;color:var(--brand);text-decoration:underline;">'+esc(p.name)+'</a></td>'+days.map(d=>{
     const x=p.days[d]; let col='#e5e7eb', tip='No approved cash-up';
     if(x){ if(x.diff<-0.005){col='#dc2626';tip='Short '+M(x.short);} else if(x.diff>0.005){col='#f59e0b';tip='Over '+M(x.diff);} else {col='#16a34a';tip='Balanced';} }
     return '<td style="padding:2px;text-align:center;"><div title="'+esc(d+' · '+tip)+'" '+(x?'onclick="verifyDay(\''+d+'\')" ':'')+'style="width:18px;height:18px;border-radius:4px;background:'+col+';'+(x?'cursor:pointer;':'')+'display:inline-block;"></div></td>';
@@ -2730,6 +2766,115 @@ function reportDrawerRecord(){
     list.map(p=>[esc(p.name),p.n,p.balDays,p.overDays,p.shortDays,M(p.totalShort),M(p.totalOver),M(p.owed),p.consistency==null?'—':p.consistency+'%']));
   h+='<h3>Day by day</h3>'+rptTable(['Waitron','Date','Result','Amount (M)'],
     list.flatMap(p=>Object.keys(p.days).sort().map(d=>{ const x=p.days[d]; const res=x.diff<-0.005?'Short':(x.diff>0.005?'Over':'Balanced'); return [esc(p.name),esc(d),res,M(Math.abs(x.diff))]; })));
+  return h;
+}
+
+/* ========================= INDIVIDUAL WAITRON RECORD ========================= */
+let wpName='', wpDays=0, wpAll=[], wpPending=0, wpView=null;
+async function openWaitronProfile(idx){
+  wpName=drData.list[idx].name; wpDays=0;
+  ['listView','detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView','drawerView','reportsView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  document.getElementById('waitronProfileView').classList.remove('hidden');
+  await loadWaitronProfile();
+}
+function setProfileRange(n){
+  wpDays=n;
+  [[30,'wpR30'],[90,'wpR90'],[0,'wpR0']].forEach(([k,id])=>{ document.getElementById(id).className='btn '+(k===n?'primary':'ghost')+' small'; });
+  renderWaitronProfile();
+}
+async function loadWaitronProfile(){
+  setProfileRange(wpDays);
+  let rows=[]; try{ rows=await Store.list(); }catch(e){}
+  const key=wpName.trim().toLowerCase(); const byDate={}; wpPending=0;
+  rows.filter(r=>r.type==='sales' && (r.runner||'?').trim().toLowerCase()===key).forEach(r=>{
+    if(r.status!=='approved'){ wpPending++; return; }
+    const s=r.sales||{}; const diff=(s.pay||[]).reduce((a,x)=>a+((x.counted||0)-(x.expected||0)),0);
+    const short=diff<-0.005?-diff:0; const remaining=Math.max(0,short-(s.explainedAmt||0));
+    const d=byDate[r.date]=byDate[r.date]||{date:r.date,diff:0,short:0,remaining:0,explained:0,settle:s.settle||''};
+    d.diff+=diff; d.short+=short; d.remaining+=remaining; d.explained+=(s.explainedAmt||0);
+  });
+  wpAll=Object.values(byDate).sort((a,b)=>a.date.localeCompare(b.date));
+  renderWaitronProfile();
+}
+function _statsOf(items){
+  const n=items.length, shortDays=items.filter(d=>d.diff<-0.005).length, overDays=items.filter(d=>d.diff>0.005).length;
+  return {n,shortDays,overDays,balDays:n-shortDays-overDays,totalShort:items.reduce((a,d)=>a+d.short,0),totalOver:items.reduce((a,d)=>a+(d.diff>0.005?d.diff:0),0),owed:items.reduce((a,d)=>a+d.remaining,0),cons:n?Math.round((n-shortDays)/n*100):null};
+}
+function _wpItems(){
+  if(!wpDays||!wpAll.length) return wpAll;
+  const cut=_isoAdd(new Date().toISOString().slice(0,10),-wpDays);
+  return wpAll.filter(d=>d.date>cut);
+}
+function _groupStats(items,keyFn){
+  const g={}; items.forEach(d=>{ (g[keyFn(d.date)]=g[keyFn(d.date)]||[]).push(d); });
+  return Object.keys(g).sort().map(k=>Object.assign({key:k},_statsOf(g[k])));
+}
+function _consBar(c){ if(c==null) return '—'; const col=c>=90?'#16a34a':(c>=70?'#f59e0b':'#dc2626'); return '<div style="display:flex;align-items:center;gap:6px;"><div style="width:90px;height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;"><div style="width:'+c+'%;height:100%;background:'+col+';"></div></div><b>'+c+'%</b></div>'; }
+function _wpTrend(items){
+  if(items.length<6) return {txt:'Not enough drawers yet to judge a trend (need at least 6).',cls:''};
+  const h=Math.floor(items.length/2); const a=_statsOf(items.slice(0,h)), b=_statsOf(items.slice(h));
+  const delta=b.cons-a.cons;
+  if(delta>=10) return {txt:'📈 Improving — consistency '+a.cons+'% earlier → '+b.cons+'% recently.',cls:'ok'};
+  if(delta<=-10) return {txt:'📉 Getting worse — consistency '+a.cons+'% earlier → '+b.cons+'% recently.',cls:'over'};
+  return {txt:'➡ Steady — consistency '+a.cons+'% earlier, '+b.cons+'% recently.',cls:''};
+}
+function renderWaitronProfile(){
+  const items=_wpItems(); const st=_statsOf(items);
+  document.getElementById('wpName').textContent=wpName;
+  document.getElementById('wpRange').textContent=wpDays?('· last '+wpDays+' days'):'· all time'+(items.length?(' · since '+items[0].date):'');
+  if(!items.length){
+    ['wpVerdict','wpChart','wpMonths','wpWeeks','wpHistory'].forEach(id=>document.getElementById(id).innerHTML='');
+    document.getElementById('wpStats').innerHTML='<span class="muted">No approved cash-ups in this range.</span>'+(wpPending?' <span class="muted">('+wpPending+' not approved yet)</span>':'');
+    wpView={items,st,months:[],weeks:[],trend:{txt:''}}; return;
+  }
+  const tr=_wpTrend(items);
+  document.getElementById('wpVerdict').innerHTML='<span class="flag '+tr.cls+'" style="font-size:14px;">'+tr.txt+'</span>';
+  // streaks (a "clean" day = not short)
+  let best=0,run=0; items.forEach(d=>{ if(d.diff<-0.005) run=0; else { run++; if(run>best) best=run; } });
+  let cur=0; for(let i=items.length-1;i>=0&&items[i].diff>=-0.005;i--) cur++;
+  const worst=items.reduce((w,d)=>d.short>w.short?d:w,items[0]);
+  const avgShort=st.shortDays?st.totalShort/st.shortDays:0;
+  const tile=(l,v,c)=>'<div style="border:1px solid #d8dee6;border-radius:10px;padding:10px 12px;min-width:120px;flex:1;"><div class="muted" style="font-size:11px;">'+l+'</div><div style="font-size:20px;font-weight:800;'+(c?'color:'+c+';':'')+'">'+v+'</div></div>';
+  document.getElementById('wpStats').innerHTML='<div style="display:flex;flex-wrap:wrap;gap:10px;">'
+    +tile('Consistency',st.cons+'%',st.cons>=90?'#16a34a':(st.cons>=70?'#b45309':'#dc2626'))
+    +tile('Drawers counted',st.n)+tile('Balanced / over / short',st.balDays+' / '+st.overDays+' / '+st.shortDays)
+    +tile('Total short',M(st.totalShort),st.totalShort>0?'#dc2626':'')+tile('Average when short',M(avgShort))
+    +tile('Worst day',worst.short>0?M(worst.short)+'<div class="muted" style="font-size:11px;font-weight:400;">'+esc(worst.date)+'</div>':'—')
+    +tile('Clean streak now',cur+' day'+(cur===1?'':'s'))+tile('Best clean streak',best+' day'+(best===1?'':'s'))
+    +tile('Still owed',M(st.owed),st.owed>0?'#dc2626':'')+'</div>'
+    +(wpPending?'<p class="muted" style="font-size:12px;margin-top:8px;">'+wpPending+' cash-up'+(wpPending>1?'s':'')+' not approved yet — not counted.</p>':'');
+  // chart
+  const bw=14,gap=4,H=180,mid=H/2, maxAbs=Math.max(10,...items.map(d=>Math.abs(d.diff))); const W=items.length*(bw+gap)+40;
+  let svg='<svg width="'+W+'" height="'+(H+30)+'" role="img" aria-label="Variance per drawer"><line x1="30" x2="'+W+'" y1="'+mid+'" y2="'+mid+'" stroke="#9ca3af"/>'
+    +'<text x="0" y="14" font-size="10" fill="#6b7280">+'+Math.round(maxAbs)+'</text><text x="0" y="'+(H-2)+'" font-size="10" fill="#6b7280">-'+Math.round(maxAbs)+'</text>';
+  items.forEach((d,i)=>{
+    const x=34+i*(bw+gap); const h=Math.max(3,Math.abs(d.diff)/maxAbs*(mid-8)); const bal=Math.abs(d.diff)<=0.005;
+    const col=bal?'#16a34a':(d.diff<0?'#dc2626':'#f59e0b'); const y=bal?mid-3:(d.diff<0?mid:mid-h); const hh=bal?6:h;
+    svg+='<rect x="'+x+'" y="'+y+'" width="'+bw+'" height="'+hh+'" rx="2" fill="'+col+'" style="cursor:pointer;" onclick="verifyDay(\''+d.date+'\')"><title>'+esc(d.date)+' · '+(bal?'Balanced':(d.diff<0?'Short ':'Over ')+M(Math.abs(d.diff)))+'</title></rect>';
+    if(i===0||items[i-1].date.slice(0,7)!==d.date.slice(0,7)) svg+='<text x="'+x+'" y="'+(H+16)+'" font-size="10" fill="#6b7280">'+d.date.slice(5,7)+'/'+d.date.slice(2,4)+'</text>';
+  });
+  document.getElementById('wpChart').innerHTML=svg+'</svg>';
+  // month & week tables
+  const months=_groupStats(items,d=>d.slice(0,7));
+  const weeks=_groupStats(items,d=>drawerRange(d,'week').from);
+  const tbl=(rows,lab)=>'<table><thead><tr><th>'+lab+'</th><th class="num">Drawers</th><th class="num">Short days</th><th class="num">Over days</th><th class="num">Total short (M)</th><th>Consistency</th></tr></thead><tbody>'
+    +rows.map(r=>'<tr><td>'+esc(lab==='Month'?new Date(r.key+'-01T00:00:00Z').toLocaleDateString('en-ZA',{year:'numeric',month:'long',timeZone:'UTC'}):'w/c '+r.key)+'</td><td class="num">'+r.n+'</td><td class="num rpt-neg">'+r.shortDays+'</td><td class="num">'+r.overDays+'</td><td class="num rpt-neg">'+M(r.totalShort)+'</td><td>'+_consBar(r.cons)+'</td></tr>').join('')+'</tbody></table>';
+  document.getElementById('wpMonths').innerHTML=tbl(months,'Month');
+  document.getElementById('wpWeeks').innerHTML=tbl(weeks.slice().reverse(),'Week');
+  document.getElementById('wpHistory').innerHTML='<table><thead><tr><th>Date</th><th>Result</th><th class="num">Amount (M)</th><th>Settled</th><th class="no-print"></th></tr></thead><tbody>'
+    +items.slice().reverse().map(d=>{ const bal=Math.abs(d.diff)<=0.005; return '<tr><td>'+esc(d.date)+'</td><td>'+(bal?'<span class="flag ok">Balanced</span>':(d.diff<0?'<span class="rpt-neg"><b>Short</b></span>':'<span style="color:#b45309;"><b>Over</b></span>'))+'</td><td class="num">'+(bal?'—':M(Math.abs(d.diff)))+'</td><td>'+(d.diff<-0.005?esc(d.settle||'To review'):'')+'</td><td class="no-print"><button class="btn ghost small" onclick="verifyDay(\''+d.date+'\')">Open day →</button></td></tr>'; }).join('')+'</tbody></table>';
+  wpView={items,st,months,weeks,trend:tr};
+}
+function reportWaitronProfile(){
+  if(!wpView) return '';
+  const {items,st,months,weeks,trend}=wpView;
+  let h=rptHead('Drawer record — '+wpName,(wpDays?'Last '+wpDays+' days':'All time')+' · consistency and trend');
+  if(!items.length) return h+'<p>No approved cash-ups in this range.</p>';
+  h+='<p><b>'+esc(trend.txt)+'</b></p>';
+  h+=rptTable(['Drawers','Balanced','Over','Short','Total short (M)','Total over (M)','Still owed (M)','Consistency'],[[st.n,st.balDays,st.overDays,st.shortDays,M(st.totalShort),M(st.totalOver),M(st.owed),st.cons+'%']]);
+  h+='<h3>Month by month</h3>'+rptTable(['Month','Drawers','Short days','Total short (M)','Consistency'],months.map(r=>[esc(r.key),r.n,r.shortDays,M(r.totalShort),r.cons+'%']));
+  h+='<h3>Week by week</h3>'+rptTable(['Week commencing','Drawers','Short days','Total short (M)','Consistency'],weeks.slice().reverse().map(r=>[esc(r.key),r.n,r.shortDays,M(r.totalShort),r.cons+'%']));
+  h+='<h3>History</h3>'+rptTable(['Date','Result','Amount (M)'],items.slice().reverse().map(d=>[esc(d.date),Math.abs(d.diff)<=0.005?'Balanced':(d.diff<0?'Short':'Over'),Math.abs(d.diff)<=0.005?'—':M(Math.abs(d.diff))]));
   return h;
 }
 
