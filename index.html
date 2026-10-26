@@ -2438,7 +2438,7 @@ async function loadSummary(){
   rows.filter(r=>r.type==='waitron' && r.date===date && ['authorised','submitted','approved'].includes(r.status))
     .forEach(r=>{
       const sdTotal=(r.purchases||[]).filter(p=>(p.category||'').trim().toLowerCase()==='starting drawer'||(p.note||'').trim().toLowerCase().includes('starting drawer')).reduce((s,p)=>s+(p.amount||0),0);
-      if(sdTotal>0) sumWFloatMap[(r.runner||'').trim().toLowerCase()]=sdTotal;
+      if(sdTotal>0){ const k=(r.runner||'').trim().toLowerCase(); sumWFloatMap[k]=(sumWFloatMap[k]||0)+sdTotal; }
     });
   const ded=(sumDayRec&&sumDayRec.sales&&sumDayRec.sales.deductions)||{};
   document.getElementById('dDeposit').value=ded.deposit||''; document.getElementById('dPetty').value=ded.petty||'';
@@ -2638,6 +2638,11 @@ function renderSummary(){
     +'<td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
   // Aggregate starting-drawer cross-check: total petty cash given vs total opening floats reported
   const totalPetty=Object.values(sumWFloatMap).reduce((s,v)=>s+v,0);
+  const sdWhoHtml=()=>{ const f={}; sumRecords.forEach(r=>{ const k=(r.runner||'').trim().toLowerCase(); f[k]=f[k]||{name:(r.runner||'?').trim(),fl:0}; f[k].fl+=(r.cash_float||0); });
+    Object.keys(sumWFloatMap).forEach(k=>{ f[k]=f[k]||{name:k,fl:0}; });
+    const bad=Object.keys(f).map(k=>({n:f[k].name,petty:sumWFloatMap[k]||0,fl:f[k].fl})).filter(x=>Math.abs(x.fl-x.petty)>=0.005);
+    if(!bad.length) return '';
+    return '<table style="margin-top:8px;font-size:12px;"><thead><tr><th>Waitron</th><th class="num">Petty cash</th><th class="num">Opening float</th><th class="num">Difference</th></tr></thead><tbody>'+bad.map(x=>{ const d=x.fl-x.petty; return '<tr><td>'+esc(x.n)+'</td><td class="num">'+M(x.petty)+'</td><td class="num">'+M(x.fl)+'</td><td class="num" style="color:'+(d>0?'#d97706':'#dc2626')+';font-weight:700;">'+(d>0?'+ ':'– ')+M(Math.abs(d))+(x.petty===0?' (no petty cash line)':(x.fl===0?' (no cash-up / float)':''))+'</td></tr>'; }).join('')+'</tbody></table>'; };
   let floatCheckHtml='';
   if(totalPetty>0||gtReportedFloat>0){
     const match=Math.abs(totalPetty-gtReportedFloat)<0.005;
@@ -2646,7 +2651,7 @@ function renderSummary(){
     floatCheckHtml='<div style="margin-top:10px;padding:10px 14px;border-radius:8px;border:2px solid '+mc+';background:'+mbg+';font-size:13px;">'
       +(match
         ? '<b style="color:var(--good,#16a34a);">✓ Starting drawer check passed</b> — "Starting drawer" expenses in petty cash <b>'+M(totalPetty)+'</b> matches the sum of all reported opening floats <b>'+M(gtReportedFloat)+'</b>.'
-        : '<b style="color:'+mc+';">⚠ Starting drawer mismatch ('+(diff>0?'OVER':'UNDER')+')</b> — "Starting drawer" expenses in petty cash total <b>'+M(totalPetty)+'</b> but waitrons\' reported opening floats add up to <b>'+M(gtReportedFloat)+'</b> (difference: <b>'+M(Math.abs(diff))+'</b> '+(diff>0?'over':'under')+').')
+        : '<b style="color:'+mc+';">⚠ Starting drawer mismatch ('+(diff>0?'OVER':'UNDER')+')</b> — "Starting drawer" expenses in petty cash total <b>'+M(totalPetty)+'</b> but waitrons\' reported opening floats add up to <b>'+M(gtReportedFloat)+'</b> (difference: <b>'+M(Math.abs(diff))+'</b> '+(diff>0?'over':'under')+').'+sdWhoHtml())
       +'</div>';
   }
   el.innerHTML='<table><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table>'+floatCheckHtml;
