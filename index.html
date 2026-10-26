@@ -98,6 +98,7 @@
   .rpt-sub{color:#6b7785;font-size:12px;margin-top:2px;}
   .rpt-meta{display:flex;flex-wrap:wrap;gap:6px 26px;margin-bottom:8px;font-size:13px;}
   .rpt-meta .k{color:#6b7785;}
+  #rptPreview{font-size:13px;} #rptPreview h3{font-size:13px;margin:16px 0 6px;color:var(--brand);text-transform:uppercase;letter-spacing:.4px;}
   #printArea h3{font-size:13px;margin:16px 0 6px;color:var(--brand);text-transform:uppercase;letter-spacing:.4px;}
   .rpt-tbl{width:100%;border-collapse:collapse;margin-bottom:4px;font-size:12px;}
   .rpt-tbl th{background:#f1f5f3;text-align:left;padding:6px 8px;border:1px solid #dbe5e0;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#5a6470;}
@@ -648,7 +649,9 @@
         <button class="btn primary small" id="drPerDay" onclick="setDrawerPeriod('day')">Daily</button>
         <button class="btn ghost small" id="drPerWeek" onclick="setDrawerPeriod('week')">Weekly</button>
         <button class="btn ghost small" id="drPerMonth" onclick="setDrawerPeriod('month')">Monthly</button>
+        <button class="btn ghost small" id="drPerCustom" onclick="setDrawerPeriod('custom')">Custom range</button>
         <input type="date" id="drDate" onchange="loadDrawerRecord()" style="width:auto;">
+        <span id="drCustomBox" style="display:none;align-items:center;gap:6px;"><input type="date" id="drFrom" onchange="loadDrawerRecord()" style="width:auto;"> to <input type="date" id="drTo" onchange="loadDrawerRecord()" style="width:auto;"></span>
         <button class="btn ghost small" onclick="printReport()">🖨 Print / PDF</button>
       </div>
     </div>
@@ -679,6 +682,7 @@
       <div class="row-actions" style="margin:0;align-items:center;">
         <label style="font-size:12px;color:var(--muted);">Period</label>
         <select id="wpPeriod" onchange="setProfilePeriod(this.value)" style="width:auto;"></select>
+        <span id="wpCustomBox" style="display:none;align-items:center;gap:6px;"><input type="date" id="wpFrom" onchange="renderWaitronProfile()" style="width:auto;"> to <input type="date" id="wpTo" onchange="renderWaitronProfile()" style="width:auto;"></span>
         <button class="btn ghost small" onclick="printReport()">🖨 Print / PDF</button>
       </div>
     </div>
@@ -725,6 +729,38 @@
     <div class="topbar no-print">
       <button class="btn ghost small" onclick="showList()">← Back to list</button>
       <h2 style="margin:0;">Reports</h2>
+    </div>
+    <div class="card">
+      <h2>Custom date range</h2>
+      <p class="hint">Choose any From and To dates (or a quick pick), then the report you want. Preview it here, or print / save as PDF.</p>
+      <div class="grid g3" style="max-width:640px;align-items:end;">
+        <div><label>From</label><input type="date" id="rngFrom" onchange="rangeChanged()"></div>
+        <div><label>To</label><input type="date" id="rngTo" onchange="rangeChanged()"></div>
+        <div><label>Waitron <span class="muted" style="font-size:11px;">(petty cash &amp; drawer)</span></label><select id="rngWaitron"></select></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;">
+        <button class="btn ghost small" onclick="setRangePreset('today')">Today</button>
+        <button class="btn ghost small" onclick="setRangePreset('yesterday')">Yesterday</button>
+        <button class="btn ghost small" onclick="setRangePreset('last7')">Last 7 days</button>
+        <button class="btn ghost small" onclick="setRangePreset('thisweek')">This week</button>
+        <button class="btn ghost small" onclick="setRangePreset('lastweek')">Last week</button>
+        <button class="btn ghost small" onclick="setRangePreset('last30')">Last 30 days</button>
+        <button class="btn ghost small" onclick="setRangePreset('thismonth')">This month</button>
+        <button class="btn ghost small" onclick="setRangePreset('lastmonth')">Last month</button>
+        <button class="btn ghost small" onclick="setRangePreset('thisyear')">This year</button>
+      </div>
+      <div id="rngLabel" style="font-weight:700;margin-bottom:8px;"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn primary small" onclick="runRangeReport('petty')">💵 Waitron petty cash</button>
+        <button class="btn primary small" onclick="runRangeReport('cash')">📋 Cash flow</button>
+        <button class="btn primary small" onclick="runRangeReport('short')">💸 Shortages</button>
+        <button class="btn primary small" onclick="openDrawerRange()">📈 Drawer record &amp; trends</button>
+      </div>
+      <div id="rngPreviewBar" class="no-print" style="display:none;margin-top:14px;">
+        <button class="btn ghost small" onclick="printRangePreview()">🖨 Print / PDF</button>
+        <button class="btn ghost small" onclick="exportRangeCSV()" id="rngCsvBtn" style="display:none;">⬇ CSV</button>
+      </div>
+      <div id="rptPreview" style="margin-top:10px;overflow-x:auto;"></div>
     </div>
     <div class="card">
       <h2>Daily reports</h2>
@@ -2633,7 +2669,8 @@ async function saveSummary(){
 }
 
 /* ========================= MONTHLY SHORTAGES ========================= */
-let shItems=[], shOwedMap={};
+let shItems=[], shOwedMap={}, shRange=null;
+function _shIn(date,month){ date=date||''; return shRange ? (date>=shRange.from && date<=shRange.to) : date.slice(0,7)===month; }
 function openShortages(){
   ['listView','detailView','teamView','waitronView','salesView','salesSummaryView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
   document.getElementById('shortagesView').classList.remove('hidden');
@@ -2644,7 +2681,7 @@ async function loadShortages(){
   const month=document.getElementById('shMonth').value;
   document.getElementById('shMonthLabel').textContent=month||'—';
   let rows=[]; try{ rows=await Store.list(); }catch(e){}
-  const recs=rows.filter(r=>r.type==='sales' && (r.date||'').slice(0,7)===month);
+  const recs=rows.filter(r=>r.type==='sales' && _shIn(r.date,month));
   shItems=[]; shOwedMap={};
   recs.forEach(r=>{ const s=r.sales||{}; const diff=(s.pay||[]).reduce((a,p)=>a+((p.counted||0)-(p.expected||0)),0); const shortage=diff<0?-diff:0;
     if(shortage<=0) return;
@@ -2653,7 +2690,7 @@ async function loadShortages(){
     if(s.settle==='Owed — deduct from salary' && remaining>0) shOwedMap[r.runner||'?']=(shOwedMap[r.runner||'?']||0)+remaining;
   });
   // Include waitron petty cash shortages
-  rows.filter(r=>r.type==='waitron' && (r.date||'').slice(0,7)===month).forEach(r=>{
+  rows.filter(r=>r.type==='waitron' && _shIn(r.date,month)).forEach(r=>{
     const spent=(r.purchases||[]).reduce((s,p)=>s+(p.amount||0),0);
     const shouldReturn=(r.cash_float||0)-spent;
     const variance=(r.actual_cash||0)-shouldReturn;
@@ -2703,8 +2740,8 @@ function renderShortages(){
 }
 function verifyDay(d){ listMode='sales'; dateFilter=d; showList(); }
 function reportShortages(){
-  const month=document.getElementById('shMonth').value||'';
-  let h=rptHead('Shortages — '+month,'Monthly staff shortages');
+  const month=shRange?shRange.label:(document.getElementById('shMonth').value||'');
+  let h=rptHead('Shortages — '+month,shRange?'Staff shortages for the selected dates':'Monthly staff shortages');
   const sorted=shItems.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'') || (a.date||'').localeCompare(b.date||''));
   h+='<h3>Shortage statements by waitron</h3>'+rptTable(['Waitron','Date','Short (M)','Explained (M)','Paid (M)','Still owed (M)'], sorted.map(i=>{
     const paid=(i.settle==='Paid immediately')?i.remaining:0; const owed=(i.settle==='Owed — deduct from salary')?i.remaining:0;
@@ -2720,6 +2757,10 @@ let drPeriod='day', drData=null, drAll=[], drPendByName={};
 const WEEKDAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 function _isoAdd(iso,n){ const d=new Date(iso+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
 function drawerRange(anchor,period){
+  if(period==='custom'){
+    const f=document.getElementById('drFrom').value||anchor, t=document.getElementById('drTo').value||f;
+    const from=f<=t?f:t, to=f<=t?t:f; return {from,to,label:from+' → '+to};
+  }
   if(period==='day') return {from:anchor,to:anchor,label:anchor};
   if(period==='week'){ const dow=(new Date(anchor+'T00:00:00Z').getUTCDay()+6)%7; const from=_isoAdd(anchor,-dow); const to=_isoAdd(from,6); return {from,to,label:'Week '+from+' → '+to}; }
   const from=anchor.slice(0,8)+'01'; const nd=new Date(from+'T00:00:00Z'); nd.setUTCMonth(nd.getUTCMonth()+1); const to=_isoAdd(nd.toISOString().slice(0,10),-1);
@@ -2792,7 +2833,11 @@ function openDrawerRecord(){
 }
 function setDrawerPeriod(p){
   drPeriod=p;
-  [['day','drPerDay'],['week','drPerWeek'],['month','drPerMonth']].forEach(([k,id])=>{ document.getElementById(id).className='btn '+(k===p?'primary':'ghost')+' small'; });
+  [['day','drPerDay'],['week','drPerWeek'],['month','drPerMonth'],['custom','drPerCustom']].forEach(([k,id])=>{ document.getElementById(id).className='btn '+(k===p?'primary':'ghost')+' small'; });
+  const today=new Date().toISOString().slice(0,10);
+  if(p==='custom'){ const f=document.getElementById('drFrom'), t=document.getElementById('drTo'); if(!f.value) f.value=today.slice(0,8)+'01'; if(!t.value) t.value=today; }
+  document.getElementById('drCustomBox').style.display=p==='custom'?'inline-flex':'none';
+  document.getElementById('drDate').style.display=p==='custom'?'none':'';
   loadDrawerRecord();
 }
 async function loadDrawerRecord(){
@@ -2843,7 +2888,9 @@ function renderDrawerRecord(){
     +'<tr style="font-weight:800;border-top:2px solid var(--ink);"><td>All waitrons</td><td class="num">'+team.n+'</td><td class="num">'+team.balDays+'</td><td class="num">'+team.overDays+'</td><td class="num">'+team.shortDays+'</td><td class="num rpt-neg">'+M(team.totalShort)+'</td><td class="num">'+M(team.totalOver)+'</td><td class="num">'+_net(team.net)+'</td><td class="num">'+_pct(team.shortPct)+'</td><td class="num rpt-neg">'+M(team.owed)+'</td><td class="num">'+(team.cons==null?'—':team.cons+'%')+'</td></tr></tbody></table>';
   const ins=_insights(); iEl.innerHTML=ins.length?'<ul style="margin:0;padding-left:18px;line-height:1.7;">'+ins.map(t=>'<li>'+t+'</li>').join('')+'</ul>':'';
   // Day grid
-  const dayList=[]; for(let d=rg.from; d<=rg.to; d=_isoAdd(d,1)) dayList.push(d);
+  const dayList=[]; for(let d=rg.from; d<=rg.to && dayList.length<=92; d=_isoAdd(d,1)) dayList.push(d);
+  if(dayList.length>92){ gEl.innerHTML='<span class="muted">Range is longer than 92 days — open a waitron\'s name for their trend chart, or narrow the dates to see the day-by-day grid.</span>'; }
+  else {
   const head=dayList.map(d=>'<th style="font-size:10px;padding:2px;text-align:center;">'+d.slice(8)+'</th>').join('');
   const rowsH=list.map(p=>'<tr><td style="white-space:nowrap;padding-right:10px;"><a href="#" onclick="openWaitronProfile('+list.indexOf(p)+');return false;" style="font-weight:700;color:var(--brand);text-decoration:underline;">'+esc(p.name)+'</a></td>'+dayList.map(d=>{
     const x=p.days[d]; let col='#e5e7eb', tip='No approved cash-up';
@@ -2851,6 +2898,7 @@ function renderDrawerRecord(){
     return '<td style="padding:2px;text-align:center;"><div title="'+esc(d+' · '+tip)+'" '+(x?'onclick="verifyDay(\''+d+'\')" ':'')+'style="width:18px;height:18px;border-radius:4px;background:'+col+';'+(x?'cursor:pointer;':'')+'display:inline-block;"></div></td>';
   }).join('')+'</tr>').join('');
   gEl.innerHTML='<table style="border-collapse:collapse;"><thead><tr><th></th>'+head+'</tr></thead><tbody>'+rowsH+'</tbody></table>';
+  }
   // weekday + payment type (team)
   const wd=_byWeekday(days), ty=_byType(days);
   xEl.innerHTML=(wd.length>1?'<h3 style="margin:0 0 6px;">By day of the week</h3>'+_weekdayTable(wd):'')+'<h3 style="margin:16px 0 6px;">By payment type</h3>'+_typeTable(ty)
@@ -2877,14 +2925,21 @@ async function openWaitronProfile(idx){
   document.getElementById('waitronProfileView').classList.remove('hidden');
   await drLoadAll();
   const months=[...new Set(drAll.filter(d=>d.name===wpName).map(d=>d.date.slice(0,7)))].sort().reverse();
-  document.getElementById('wpPeriod').innerHTML='<option value="all">All time</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option>'
+  document.getElementById('wpPeriod').innerHTML='<option value="all">All time</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="custom">Custom range…</option>'
     +months.map(m=>'<option value="'+m+'">'+new Date(m+'-01T00:00:00Z').toLocaleDateString('en-ZA',{year:'numeric',month:'long',timeZone:'UTC'})+'</option>').join('');
-  document.getElementById('wpPeriod').value='all';
+  document.getElementById('wpPeriod').value='all'; document.getElementById('wpCustomBox').style.display='none';
   renderWaitronProfile();
 }
-function setProfilePeriod(v){ wpPeriod=v; renderWaitronProfile(); }
+function setProfilePeriod(v){
+  wpPeriod=v;
+  const f=document.getElementById('wpFrom'), t=document.getElementById('wpTo');
+  if(v==='custom'){ const today=new Date().toISOString().slice(0,10); if(!f.value) f.value=today.slice(0,8)+'01'; if(!t.value) t.value=today; }
+  document.getElementById('wpCustomBox').style.display=v==='custom'?'inline-flex':'none';
+  renderWaitronProfile();
+}
 function _inProfilePeriod(date){
   if(wpPeriod==='all') return true;
+  if(wpPeriod==='custom'){ const a=document.getElementById('wpFrom').value||'0000-01-01', b=document.getElementById('wpTo').value||'9999-12-31'; return date>=(a<=b?a:b) && date<=(a<=b?b:a); }
   if(wpPeriod==='30'||wpPeriod==='90') return date>_isoAdd(new Date().toISOString().slice(0,10),-parseInt(wpPeriod,10));
   return date.slice(0,7)===wpPeriod;
 }
@@ -2969,7 +3024,8 @@ function renderWaitronProfile(){
 function reportWaitronProfile(){
   if(!wpView) return '';
   const {items,st,team,months,weeks,trend,wd,ty}=wpView;
-  const sel=document.getElementById('wpPeriod'); const lab=sel&&sel.selectedOptions[0]?sel.selectedOptions[0].textContent:'';
+  const sel=document.getElementById('wpPeriod'); let lab=sel&&sel.selectedOptions[0]?sel.selectedOptions[0].textContent:'';
+  if(wpPeriod==='custom') lab=document.getElementById('wpFrom').value+' → '+document.getElementById('wpTo').value;
   let h=rptHead('Drawer record — '+wpName,lab+' · consistency and trend');
   if(!items.length) return h+'<p>No approved cash-ups in this range.</p>';
   h+='<p><b>'+esc(trend.txt)+'</b></p>';
@@ -2996,6 +3052,8 @@ function openReports(){
   document.getElementById('reportsView').classList.remove('hidden');
   const d=document.getElementById('rptDate'); if(!d.value) d.value=new Date().toISOString().slice(0,10);
   const m=document.getElementById('rptMonth'); if(!m.value) m.value=new Date().toISOString().slice(0,7);
+  const ws=document.getElementById('rngWaitron'); const cur=ws.value; ws.innerHTML='<option value="">All waitrons</option>'+waitronNames().map(n=>'<option>'+esc(n)+'</option>').join(''); ws.value=cur;
+  if(!document.getElementById('rngFrom').value) setRangePreset('thismonth');
 }
 async function printRptDaily(){
   const date=document.getElementById('rptDate').value; if(!date){alert('Pick a date first.');return;}
@@ -3082,14 +3140,16 @@ function reportPOSummaryForDate(date,poRecs){
 }
 
 /* Monthly cash flow report — one row per day, both sales and PO sections */
-function reportMonthlyCash(month,rows){
-  let h=rptHead('Monthly Cash Report — '+month,'Cash flow summary · Jays Restaurant');
+function _inR(d,from,to){ d=d||''; return d>=from && d<=to; }
+function reportMonthlyCash(month,rows){ return reportCashRange(month+'-01',month+'-31',rows,'Monthly Cash Report — '+month,'MONTH TOTAL'); }
+function reportCashRange(from,to,rows,title,totLabel){
+  let h=rptHead(title,'Cash flow summary · Jays Restaurant');
   const salesByDay={}, poByDay={}, dayRecs={};
-  rows.filter(r=>r.type==='sales'&&(r.date||'').slice(0,7)===month).forEach(r=>{(salesByDay[r.date]=salesByDay[r.date]||[]).push(r);});
-  rows.filter(r=>(r.type||'po')==='po'&&(r.date||'').slice(0,7)===month).forEach(r=>{(poByDay[r.date]=poByDay[r.date]||[]).push(r);});
-  rows.filter(r=>r.type==='salesday'&&(r.date||'').slice(0,7)===month).forEach(r=>{dayRecs[r.date]=r;});
+  rows.filter(r=>r.type==='sales'&&_inR(r.date,from,to)).forEach(r=>{(salesByDay[r.date]=salesByDay[r.date]||[]).push(r);});
+  rows.filter(r=>(r.type||'po')==='po'&&_inR(r.date,from,to)).forEach(r=>{(poByDay[r.date]=poByDay[r.date]||[]).push(r);});
+  rows.filter(r=>r.type==='salesday'&&_inR(r.date,from,to)).forEach(r=>{dayRecs[r.date]=r;});
   const allDays=[...new Set([...Object.keys(salesByDay),...Object.keys(poByDay)])].sort();
-  if(!allDays.length){ h+='<p style="color:#6b7785;font-size:13px;">No records found for this month.</p>'; return h; }
+  if(!allDays.length){ h+='<p style="color:#6b7785;font-size:13px;">No records found for these dates.</p>'; return h; }
   if(Object.keys(salesByDay).length){
     h+='<h3>Daily sales (cash-up summary)</h3>';
     let srows=[],stot=0,stipstot=0,snettot=0,sdedtot=0;
@@ -3101,7 +3161,7 @@ function reportMonthlyCash(month,rows){
       stot+=hand; stipstot+=tips; snettot+=net; if(ded!=null)sdedtot+=ded;
       srows.push([esc(d),recs.length+' staff',M(hand),M(tips),M(net),ded!=null?M(ded):'—',ded!=null?M(net-ded):'—']);
     });
-    srows.push(['MONTH TOTAL','',M(stot),M(stipstot),M(snettot),M(sdedtot),M(snettot-sdedtot)]);
+    srows.push([totLabel,'',M(stot),M(stipstot),M(snettot),M(sdedtot),M(snettot-sdedtot)]);
     h+=rptTable(['Date','Staff','Total cash','Tips','Net cash','Deductions','Cash in hand'],srows);
   }
   if(Object.keys(poByDay).length){
@@ -3118,10 +3178,139 @@ function reportMonthlyCash(month,rows){
       ptottot+=total; pcastot+=cash; ptrptot+=trip;
       prows.push([esc(d),recs.length+' run(s)',M(cash),M(total-cash),M(trip),M(total+trip)]);
     });
-    prows.push(['MONTH TOTAL','',M(pcastot),M(ptottot-pcastot),M(ptrptot),M(ptottot+ptrptot)]);
+    prows.push([totLabel,'',M(pcastot),M(ptottot-pcastot),M(ptrptot),M(ptottot+ptrptot)]);
     h+=rptTable(['Date','Runs','Cash spend','Non-cash','Trip fees','Total'],prows);
   }
   return h;
+}
+
+/* ========================= CUSTOM DATE-RANGE REPORTS ========================= */
+let rngCurrent=null;
+function _todayIso(){ return new Date().toISOString().slice(0,10); }
+function setRangePreset(k){
+  const t=_todayIso(); let from=t, to=t;
+  const dow=(new Date(t+'T00:00:00Z').getUTCDay()+6)%7; // Monday = 0
+  if(k==='yesterday'){ from=to=_isoAdd(t,-1); }
+  else if(k==='last7'){ from=_isoAdd(t,-6); }
+  else if(k==='last30'){ from=_isoAdd(t,-29); }
+  else if(k==='thisweek'){ from=_isoAdd(t,-dow); to=_isoAdd(from,6); }
+  else if(k==='lastweek'){ to=_isoAdd(t,-dow-1); from=_isoAdd(to,-6); }
+  else if(k==='thismonth'){ from=t.slice(0,8)+'01'; to=drawerRange(t,'month').to; }
+  else if(k==='lastmonth'){ const first=t.slice(0,8)+'01'; to=_isoAdd(first,-1); from=to.slice(0,8)+'01'; }
+  else if(k==='thisyear'){ from=t.slice(0,4)+'-01-01'; to=t.slice(0,4)+'-12-31'; }
+  document.getElementById('rngFrom').value=from; document.getElementById('rngTo').value=to;
+  rangeChanged();
+}
+function rangeChanged(){
+  const r=getRange(true); const el=document.getElementById('rngLabel');
+  if(el) el.textContent=r?(r.label+' · '+r.days+' day'+(r.days===1?'':'s')):'';
+  document.getElementById('rptPreview').innerHTML=''; document.getElementById('rngPreviewBar').style.display='none'; rngCurrent=null;
+}
+function getRange(quiet){
+  let f=document.getElementById('rngFrom').value, t=document.getElementById('rngTo').value;
+  if(!f&&!t){ if(!quiet) alert('Pick a From and To date first (or a quick pick).'); return null; }
+  if(!f) f=t; if(!t) t=f; if(f>t){ const x=f; f=t; t=x; }
+  const fmt=d=>new Date(d+'T00:00:00Z').toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'});
+  const days=Math.round((new Date(t+'T00:00:00Z')-new Date(f+'T00:00:00Z'))/86400000)+1;
+  return {from:f,to:t,days,label:f===t?fmt(f):fmt(f)+' → '+fmt(t)};
+}
+function _rngWaitron(){ const v=document.getElementById('rngWaitron').value; return v||''; }
+async function runRangeReport(kind){
+  const r=getRange(); if(!r) return;
+  let rows=[]; try{ rows=await Store.list(); }catch(e){}
+  const who=_rngWaitron(); let html='', csv=null;
+  if(kind==='petty'){ const res=reportPettyCash(r.from,r.to,r.label,rows,who); html=res.html; csv=res.csv; }
+  else if(kind==='cash'){ html=reportCashRange(r.from,r.to,rows,'Cash Report — '+r.label,'RANGE TOTAL'); }
+  else if(kind==='short'){
+    shRange={from:r.from,to:r.to,label:r.label};
+    try{ await loadShortages(); html=reportShortages(); } finally { shRange=null; }
+  }
+  rngCurrent={html,csv,kind,r};
+  document.getElementById('rptPreview').innerHTML=html;
+  document.getElementById('rngPreviewBar').style.display='block';
+  document.getElementById('rngCsvBtn').style.display=csv?'':'none';
+  document.getElementById('rptPreview').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function printRangePreview(){
+  if(!rngCurrent) return;
+  document.getElementById('printArea').innerHTML=rngCurrent.html;
+  document.body.classList.add('printing'); window.print(); setTimeout(()=>document.body.classList.remove('printing'),800);
+}
+function exportRangeCSV(){
+  if(!rngCurrent||!rngCurrent.csv) return;
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const txt=rngCurrent.csv.map(row=>row.map(q).join(',')).join('\r\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(['﻿'+txt],{type:'text/csv'}));
+  a.download='petty-cash_'+rngCurrent.r.from+'_to_'+rngCurrent.r.to+'.csv'; document.body.appendChild(a); a.click(); a.remove();
+}
+async function openDrawerRange(){
+  const r=getRange(); if(!r) return;
+  const who=_rngWaitron();
+  if(who){
+    await drLoadAll();
+    drData={list:[{name:who}]};
+    await openWaitronProfile(0);
+    document.getElementById('wpPeriod').value='custom';
+    document.getElementById('wpFrom').value=r.from; document.getElementById('wpTo').value=r.to;
+    setProfilePeriod('custom');
+    return;
+  }
+  ['reportsView','listView','detailView','teamView','waitronView','salesView','salesSummaryView','shortagesView','waitronProfileView'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  document.getElementById('drawerView').classList.remove('hidden');
+  document.getElementById('drFrom').value=r.from; document.getElementById('drTo').value=r.to;
+  if(!document.getElementById('drDate').value) document.getElementById('drDate').value=r.to;
+  setDrawerPeriod('custom');
+}
+
+/* ---------- Waitron petty cash report (any date range, optional waitron) ---------- */
+function reportPettyCash(from,to,label,rows,who){
+  const key=(who||'').trim().toLowerCase();
+  const recs=rows.filter(r=>r.type==='waitron' && _inR(r.date,from,to) && (!key||(r.runner||'').trim().toLowerCase()===key))
+    .sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.runner||'').localeCompare(b.runner||''));
+  let h=rptHead('Waitron Petty Cash Report','Jays Restaurant · '+esc(label)+(who?' · '+esc(who):' · all waitrons'));
+  const live=recs.filter(r=>['authorised','submitted','approved'].includes(r.status));
+  const drafts=recs.length-live.length;
+  if(!live.length){ return {html:h+'<p style="color:#6b7785;font-size:13px;">No petty cash records for these dates'+(who?' and waitron':'')+'.'+(drafts?' ('+drafts+' draft record'+(drafts>1?'s':'')+' not counted.)':'')+'</p>',csv:null}; }
+  const calc=r=>{ const lines=r.purchases||[]; const spent=lines.reduce((s,e)=>s+(e.amount||0),0); const fl=r.cash_float||0; const settled=['submitted','approved'].includes(r.status);
+    const should=fl-spent; const ret=settled?(r.actual_cash||0):0; const variance=settled?ret-should:0; return {r,lines,spent,fl,settled,should,ret,variance}; };
+  const C=live.map(calc);
+  const sum=(arr,f)=>arr.reduce((s,x)=>s+f(x),0);
+  const totFloat=sum(C,x=>x.fl), totSpent=sum(C,x=>x.spent), totRet=sum(C,x=>x.ret);
+  const totShort=sum(C,x=>x.variance<-0.005?-x.variance:0), totOver=sum(C,x=>x.variance>0.005?x.variance:0);
+  const outstanding=sum(C.filter(x=>!x.settled),x=>x.fl);
+  h+='<div class="rpt-tot">Records: '+live.length+' &nbsp;&middot;&nbsp; Floats given: '+M(totFloat)+' &nbsp;&middot;&nbsp; Spent: '+M(totSpent)+' &nbsp;&middot;&nbsp; Cash returned: '+M(totRet)
+    +' &nbsp;&middot;&nbsp; Short: <span class="rpt-neg">'+M(totShort)+'</span> &nbsp;&middot;&nbsp; Over: <span class="rpt-pos">'+M(totOver)+'</span>'
+    +(outstanding>0.005?' &nbsp;&middot;&nbsp; Not yet handed in: <b>'+M(outstanding)+'</b>':'')+'</div>';
+  if(drafts) h+='<p style="font-size:11px;color:#6b7785;">'+drafts+' draft record'+(drafts>1?'s':'')+' (no float authorised yet) not counted.</p>';
+  // by waitron
+  const names=[...new Set(C.map(x=>(x.r.runner||'?').trim()||'?'))].sort();
+  h+='<h3>By waitron</h3>'+rptTable(['Waitron','Records','Float given','Spent','Returned','Short','Over'],
+    names.map(n=>{ const a=C.filter(x=>((x.r.runner||'?').trim()||'?')===n); return [esc(n),a.length,M(sum(a,x=>x.fl)),M(sum(a,x=>x.spent)),M(sum(a,x=>x.ret)),M(sum(a,x=>x.variance<-0.005?-x.variance:0)),M(sum(a,x=>x.variance>0.005?x.variance:0))]; })
+    .concat([['TOTAL',live.length,M(totFloat),M(totSpent),M(totRet),M(totShort),M(totOver)]]));
+  // by category
+  const cat={}; C.forEach(x=>x.lines.forEach(e=>{ const k=(e.category||'').trim()||'(no category)'; const c=cat[k]=cat[k]||{n:0,amt:0}; c.n++; c.amt+=(e.amount||0); }));
+  const ck=Object.keys(cat).sort((a,b)=>cat[b].amt-cat[a].amt);
+  if(ck.length) h+='<h3>Where the money went (by category)</h3>'+rptTable(['Category','Lines','Amount (M)','% of spend'],
+    ck.map(k=>[esc(k)+(k.toLowerCase()==='starting drawer'?' <i>(opening floats)</i>':''),cat[k].n,M(cat[k].amt),totSpent>0?(cat[k].amt/totSpent*100).toFixed(1)+'%':'—']).concat([['TOTAL',sum(ck,k=>cat[k].n),M(totSpent),'']]));
+  // by day
+  const days=[...new Set(C.map(x=>x.r.date))].sort();
+  if(days.length>1) h+='<h3>Day by day</h3>'+rptTable(['Date','Records','Float given','Spent','Returned'],
+    days.map(d=>{ const a=C.filter(x=>x.r.date===d); return [esc(d),a.length,M(sum(a,x=>x.fl)),M(sum(a,x=>x.spent)),M(sum(a,x=>x.ret))]; }).concat([['TOTAL',live.length,M(totFloat),M(totSpent),M(totRet)]]));
+  // variances
+  const vr=C.filter(x=>Math.abs(x.variance)>0.005);
+  if(vr.length) h+='<h3>Shortages / overs on hand-in</h3>'+rptTable(['Date','Waitron','Should return','Returned','Difference','Handling'],
+    vr.map(x=>[esc(x.r.date),esc(x.r.runner||'?'),M(x.should),M(x.ret),'<span class="'+(x.variance<0?'rpt-neg':'rpt-pos')+'">'+(x.variance<0?'– ':'+ ')+M(Math.abs(x.variance))+'</span>',esc((x.r.sales&&x.r.sales.settle)||'To review')]));
+  // receipts
+  const allLines=[]; C.forEach(x=>x.lines.forEach(e=>allLines.push({d:x.r.date,n:x.r.runner||'?',s:x.r.status,e})));
+  const noRc=allLines.filter(l=>!l.e.receiptFile && (l.e.amount||0)>0);
+  h+='<h3>Receipts</h3><div class="rpt-tot">Expense lines: '+allLines.length+' &nbsp;&middot;&nbsp; With receipt: '+(allLines.length-noRc.length)+' &nbsp;&middot;&nbsp; <span class="'+(noRc.length?'rpt-neg':'rpt-pos')+'">Missing receipt: '+noRc.length+' ('+M(sum(noRc,l=>l.e.amount||0))+')</span></div>';
+  if(noRc.length) h+=rptTable(['Date','Waitron','Category','Note','Amount (M)'],noRc.slice(0,60).map(l=>[esc(l.d),esc(l.n),esc(l.e.category||''),esc(l.e.note||''),M(l.e.amount||0)])
+    .concat(noRc.length>60?[['…','','','and '+(noRc.length-60)+' more','']]:[]));
+  // detail
+  h+='<h3>Every expense</h3>'+rptTable(['Date','Waitron','Category','Note','Amount (M)','Receipt'],
+    allLines.map(l=>[esc(l.d),esc(l.n),esc(l.e.category||''),esc(l.e.note||''),M(l.e.amount||0),l.e.receiptFile?'✓':'—']).concat([['TOTAL','','','',M(totSpent),'']]));
+  const csv=[['Date','Waitron','Status','Category','Note','Amount','Receipt']].concat(allLines.map(l=>[l.d,l.n,l.s,l.e.category||'',l.e.note||'',(l.e.amount||0).toFixed(2),l.e.receiptFile?'yes':'no']));
+  return {html:h,csv};
 }
 
 /* ---------- Init ---------- */
