@@ -749,6 +749,7 @@
         <button class="btn ghost small" onclick="setRangePreset('lastmonth')">Last month</button>
         <button class="btn ghost small" onclick="setRangePreset('thisyear')">This year</button>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;"><label style="margin:0;">Signed starting-drawer sheet in use since</label><input type="date" id="rngSheetSince" onchange="saveSheetSince()" style="width:auto;"><span class="muted">Before this date a missing sheet is not flagged (older days used the hard-copy petty cash instead).</span></div>
       <div id="rngLabel" style="font-weight:700;margin-bottom:8px;"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn primary small" onclick="runRangeReport('petty')">💵 Waitron petty cash</button>
@@ -3059,6 +3060,7 @@ function openReports(){
   const d=document.getElementById('rptDate'); if(!d.value) d.value=new Date().toISOString().slice(0,10);
   const m=document.getElementById('rptMonth'); if(!m.value) m.value=new Date().toISOString().slice(0,7);
   const ws=document.getElementById('rngWaitron'); const cur=ws.value; ws.innerHTML='<option value="">All waitrons</option>'+waitronNames().map(n=>'<option>'+esc(n)+'</option>').join(''); ws.value=cur;
+  loadSheetSince();
   if(!document.getElementById('rngFrom').value) setRangePreset('thismonth');
 }
 async function printRptDaily(){
@@ -3193,6 +3195,8 @@ function reportCashRange(from,to,rows,title,totLabel){
 /* ========================= CUSTOM DATE-RANGE REPORTS ========================= */
 let rngCurrent=null;
 function _todayIso(){ return new Date().toISOString().slice(0,10); }
+function saveSheetSince(){ try{ localStorage.setItem('jaysSheetSince',document.getElementById('rngSheetSince').value||''); }catch(e){} }
+function loadSheetSince(){ try{ const v=localStorage.getItem('jaysSheetSince')||''; const el=document.getElementById('rngSheetSince'); if(el&&!el.value) el.value=v; }catch(e){} }
 function setRangePreset(k){
   const t=_todayIso(); let from=t, to=t;
   const dow=(new Date(t+'T00:00:00Z').getUTCDay()+6)%7; // Monday = 0
@@ -3271,6 +3275,7 @@ async function openDrawerRange(){
 
 /* ---------- Starting drawer check: signed starting-drawer total in petty cash vs the day's cash-up opening floats ---------- */
 function reportStartingDrawer(from,to,label,rows){
+  const since=((document.getElementById('rngSheetSince')||{}).value)||'';
   const isSD=p=>(p.category||'').trim().toLowerCase()==='starting drawer'||(p.note||'').trim().toLowerCase().includes('starting drawer');
   const live=['authorised','submitted','approved'];
   const day={}; const slot=d=>day[d]=day[d]||{d,lines:[],cashups:[]};
@@ -3284,6 +3289,7 @@ function reportStartingDrawer(from,to,label,rows){
   const D=Object.values(day).map(x=>{ const petty=x.lines.reduce((s,l)=>s+l.amount,0), floats=x.cashups.reduce((s,c)=>s+c.fl,0);
       return Object.assign(x,{petty,floats,diff:floats-petty,ok:Math.abs(floats-petty)<0.005,noSheet:x.lines.filter(l=>!l.sheet).length}); })
     .filter(x=>x.petty>0||x.floats>0).sort((a,b)=>a.d.localeCompare(b.d));
+  D.forEach(x=>{ x.needSheet=!!since && x.d>=since; if(!x.needSheet) x.noSheet=0; });
   if(!D.length) return {html:h+'<p style="color:#6b7785;font-size:13px;">No starting-drawer petty cash or opening floats found for these dates.</p>',csv:null};
   const tp=D.reduce((s,x)=>s+x.petty,0), tf=D.reduce((s,x)=>s+x.floats,0), bad=D.filter(x=>!x.ok);
   const dcell=d=>Math.abs(d)<0.005?'—':'<span class="'+(d>0?'rpt-over':'rpt-neg')+'">'+(d>0?'+ ':'– ')+M(Math.abs(d))+'</span>';
@@ -3291,10 +3297,10 @@ function reportStartingDrawer(from,to,label,rows){
   const noSheetDays=D.filter(x=>x.noSheet>0).length;
   h+='<div class="rpt-tot">Days checked: '+D.length+' &nbsp;&middot;&nbsp; Matching: <span class="rpt-pos">'+(D.length-bad.length)+'</span> &nbsp;&middot;&nbsp; Mismatched: <span class="'+(bad.length?'rpt-neg':'rpt-pos')+'">'+bad.length+'</span> &nbsp;&middot;&nbsp; Starting drawers in petty cash: '+M(tp)+' &nbsp;&middot;&nbsp; Opening floats on cash-ups: '+M(tf)+' &nbsp;&middot;&nbsp; Net difference: '+(Math.abs(tf-tp)<0.005?'<span class="rpt-pos">none</span>':dcell(tf-tp))+'</div>';
   h+='<p style="font-size:11px;color:#6b7785;">How it works: the signed Confirmation of Starting Drawer total is entered in petty cash as a "Starting drawer" line. Each day, the opening floats on all the cash-ups should add up to that same total. <span class="rpt-neg">Red = UNDER</span> (cash-up floats add up to less than petty cash). <span class="rpt-over">Amber = OVER</span> (cash-up floats add up to more). This is a check on the day\'s totals, not on individual waitrons.</p>';
-  h+='<h3>Day by day</h3>'+rptTable(['Date','Starting drawers in petty cash','Cash-up opening floats','Difference','Signed sheet attached','Result'],
-    D.map(x=>[esc(x.d),M(x.petty),M(x.floats)+' <span style="color:#6b7785;font-size:11px;">('+x.cashups.length+' cash-up'+(x.cashups.length===1?'':'s')+')</span>',dcell(x.diff),x.lines.length?(x.noSheet?'<span class="rpt-over">'+(x.lines.length-x.noSheet)+' of '+x.lines.length+'</span>':'<span class="rpt-pos">✓</span>'):'—',verdict(x)])
+  h+='<h3>Day by day</h3>'+rptTable(['Date','Starting drawers in petty cash','Cash-up opening floats','Difference','Signed sheet / attachment','Result'],
+    D.map(x=>[esc(x.d),M(x.petty),M(x.floats)+' <span style="color:#6b7785;font-size:11px;">('+x.cashups.length+' cash-up'+(x.cashups.length===1?'':'s')+')</span>',dcell(x.diff),x.lines.length?(x.noSheet?'<span class="rpt-over">'+(x.lines.length-x.noSheet)+' of '+x.lines.length+'</span>':(x.lines.every(l=>l.sheet)?'<span class="rpt-pos">✓</span>':(x.needSheet?'':'<span style="color:#6b7785;">n/a (hard copy)</span>'))):'—',verdict(x)])
       .concat([['TOTAL',M(tp),M(tf),dcell(tf-tp),'','']]));
-  if(noSheetDays) h+='<p style="font-size:11px;color:#6b7785;">"Signed sheet attached" counts petty cash starting-drawer lines that have the signed confirmation sheet (or a receipt) attached. '+noSheetDays+' day'+(noSheetDays>1?'s have':' has')+' a line without one.</p>';
+  if(noSheetDays) h+='<p style="font-size:11px;color:#6b7785;">Since '+esc(since)+' the signed confirmation sheet should be attached to each petty cash starting-drawer line. '+noSheetDays+' day'+(noSheetDays>1?'s have':' has')+' a line without one.</p>';
   if(bad.length){
     h+='<h3>Mismatched days — the two lists side by side</h3>';
     bad.forEach(x=>{
