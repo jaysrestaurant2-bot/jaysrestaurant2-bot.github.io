@@ -2374,7 +2374,7 @@ function removeShortRcpt(i){
 }
 
 /* ========================= DAILY SALES SUMMARY (roll-up) ========================= */
-let sumRecords=[], sumDayRec=null, otherDeds=[], sumWFloatMap={};
+let sumRecords=[], sumDayRec=null, otherDeds=[], sumWFloatMap={}, sumSDLines=[];
 let salesCorrs=[];
 let pendingCarryForwards=[];
 /* Helper: find NEXT-day waitron floats (floats for D+1 come from D's cash), update dPetty, silently save.
@@ -2434,11 +2434,12 @@ async function loadSummary(){
   sumDayRec=rows.find(r=>r.type==='salesday' && r.date===date)||null;
   // Sum of "Starting drawer" expense lines across all waitron petty cash records for this date.
   // This is the total cash drawn from petty cash for starting drawers — should match sum of opening floats in daily sales.
-  sumWFloatMap={};
+  sumWFloatMap={}; sumSDLines=[];
   rows.filter(r=>r.type==='waitron' && r.date===date && ['authorised','submitted','approved'].includes(r.status))
     .forEach(r=>{
       const sdTotal=(r.purchases||[]).filter(p=>(p.category||'').trim().toLowerCase()==='starting drawer'||(p.note||'').trim().toLowerCase().includes('starting drawer')).reduce((s,p)=>s+(p.amount||0),0);
       if(sdTotal>0){ const k=(r.runner||'').trim().toLowerCase(); sumWFloatMap[k]=(sumWFloatMap[k]||0)+sdTotal; }
+      (r.purchases||[]).filter(p=>((p.category||'').trim().toLowerCase()==='starting drawer'||(p.note||'').trim().toLowerCase().includes('starting drawer'))&&(p.amount||0)>0).forEach(p=>sumSDLines.push({who:(r.runner||'').trim(),note:(p.note||'').trim(),amount:p.amount||0,sheet:!!p.receiptFile}));
     });
   const ded=(sumDayRec&&sumDayRec.sales&&sumDayRec.sales.deductions)||{};
   document.getElementById('dDeposit').value=ded.deposit||''; document.getElementById('dPetty').value=ded.petty||'';
@@ -2638,11 +2639,9 @@ function renderSummary(){
     +'<td class="num variance '+(gtDiff<0?'short':'ok')+'">'+(gtDiff>=0?'+ ':'– ')+M(Math.abs(gtDiff))+'</td><td></td></tr>';
   // Aggregate starting-drawer cross-check: total petty cash given vs total opening floats reported
   const totalPetty=Object.values(sumWFloatMap).reduce((s,v)=>s+v,0);
-  const sdWhoHtml=()=>{ const f={}; sumRecords.forEach(r=>{ const k=(r.runner||'').trim().toLowerCase(); f[k]=f[k]||{name:(r.runner||'?').trim(),fl:0}; f[k].fl+=(r.cash_float||0); });
-    Object.keys(sumWFloatMap).forEach(k=>{ f[k]=f[k]||{name:k,fl:0}; });
-    const bad=Object.keys(f).map(k=>({n:f[k].name,petty:sumWFloatMap[k]||0,fl:f[k].fl})).filter(x=>Math.abs(x.fl-x.petty)>=0.005);
-    if(!bad.length) return '';
-    return '<table style="margin-top:8px;font-size:12px;"><thead><tr><th>Waitron</th><th class="num">Petty cash</th><th class="num">Opening float</th><th class="num">Difference</th></tr></thead><tbody>'+bad.map(x=>{ const d=x.fl-x.petty; return '<tr><td>'+esc(x.n)+'</td><td class="num">'+M(x.petty)+'</td><td class="num">'+M(x.fl)+'</td><td class="num" style="color:'+(d>0?'#d97706':'#dc2626')+';font-weight:700;">'+(d>0?'+ ':'– ')+M(Math.abs(d))+(x.petty===0?' (float entered, but no petty cash drawn)':(x.fl===0?' (petty cash drawn, but no float on cash-up)':''))+'</td></tr>'; }).join('')+'</tbody></table>'; };
+  const sdWhoHtml=()=>{ const L=sumSDLines.map(l=>'<tr><td>'+esc(l.note||l.who||'Starting drawer')+'</td><td class="num">'+M(l.amount)+'</td><td>'+(l.sheet?'✓':'—')+'</td></tr>').join('')||'<tr><td colspan="3" class="muted">No Starting drawer line in petty cash</td></tr>';
+    const C=sumRecords.slice().sort((a,b)=>(a.runner||'').localeCompare(b.runner||'')).map(r=>'<tr><td>'+esc(r.runner||'?')+'</td><td class="num">'+((r.cash_float||0)>0?M(r.cash_float):'—')+'</td></tr>').join('');
+    return '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px;"><table style="flex:1;min-width:240px;"><thead><tr><th>Petty cash — starting drawer lines</th><th class="num">Amount</th><th>Sheet</th></tr></thead><tbody>'+L+'<tr style="font-weight:700;"><td>Total</td><td class="num">'+M(totalPetty)+'</td><td></td></tr></tbody></table><table style="flex:1;min-width:240px;"><thead><tr><th>Cash-ups — opening float</th><th class="num">Amount</th></tr></thead><tbody>'+C+'<tr style="font-weight:700;"><td>Total</td><td class="num">'+M(gtReportedFloat)+'</td></tr></tbody></table></div>'; };
   let floatCheckHtml='';
   if(totalPetty>0||gtReportedFloat>0){
     const match=Math.abs(totalPetty-gtReportedFloat)<0.005;
@@ -3227,7 +3226,7 @@ async function runRangeReport(kind){
   let rows=[]; try{ rows=await Store.list(); }catch(e){}
   const who=_rngWaitron(); let html='', csv=null;
   if(kind==='petty'){ const res=reportPettyCash(r.from,r.to,r.label,rows,who); html=res.html; csv=res.csv; }
-  else if(kind==='startdrawer'){ const res=reportStartingDrawer(r.from,r.to,r.label,rows,who); html=res.html; csv=res.csv; }
+  else if(kind==='startdrawer'){ const res=reportStartingDrawer(r.from,r.to,r.label,rows); html=res.html; csv=res.csv; }
   else if(kind==='cash'){ html=reportCashRange(r.from,r.to,rows,'Cash Report — '+r.label,'RANGE TOTAL'); }
   else if(kind==='short'){
     shRange={from:r.from,to:r.to,label:r.label};
@@ -3270,38 +3269,43 @@ async function openDrawerRange(){
   setDrawerPeriod('custom');
 }
 
-/* ---------- Starting drawer check (petty cash "Starting drawer" lines vs reported opening floats) ---------- */
-function reportStartingDrawer(from,to,label,rows,who){
-  const key=(who||'').trim().toLowerCase(); const nk=r=>((r.runner||'').trim().toLowerCase());
+/* ---------- Starting drawer check: signed starting-drawer total in petty cash vs the day's cash-up opening floats ---------- */
+function reportStartingDrawer(from,to,label,rows){
   const isSD=p=>(p.category||'').trim().toLowerCase()==='starting drawer'||(p.note||'').trim().toLowerCase().includes('starting drawer');
-  const day={}; // date -> { person -> {name, petty, floats} }
-  const slot=(d,r)=>{ const D=day[d]=day[d]||{}; const k=nk(r)||'?'; return D[k]=D[k]||{name:(r.runner||'?').trim()||'?',petty:0,floats:0,pettyRecs:0,cashups:0}; };
-  rows.filter(r=>r.type==='waitron' && _inR((r.date||'').slice(0,10),from,to) && (!key||nk(r)===key) && ['authorised','submitted','approved'].includes(r.status)).forEach(r=>{
-    const sd=(r.purchases||[]).filter(isSD).reduce((s,p)=>s+(p.amount||0),0); if(sd>0){ const s=slot((r.date||'').slice(0,10),r); s.petty+=sd; s.pettyRecs++; }
+  const live=['authorised','submitted','approved'];
+  const day={}; const slot=d=>day[d]=day[d]||{d,lines:[],cashups:[]};
+  rows.filter(r=>r.type==='waitron' && _inR((r.date||'').slice(0,10),from,to) && live.includes(r.status)).forEach(r=>{
+    (r.purchases||[]).filter(isSD).forEach(p=>{ if((p.amount||0)>0) slot((r.date||'').slice(0,10)).lines.push({who:(r.runner||'').trim(),note:(p.note||'').trim(),amount:p.amount||0,sheet:!!p.receiptFile}); });
   });
-  rows.filter(r=>r.type==='sales' && _inR((r.date||'').slice(0,10),from,to) && (!key||nk(r)===key)).forEach(r=>{
-    const s=slot((r.date||'').slice(0,10),r); s.floats+=(r.cash_float||0); s.cashups++;
+  rows.filter(r=>r.type==='sales' && _inR((r.date||'').slice(0,10),from,to)).forEach(r=>{
+    slot((r.date||'').slice(0,10)).cashups.push({name:(r.runner||'?').trim()||'?',fl:r.cash_float||0});
   });
-  let h=rptHead('Starting Drawer Check','Petty cash vs reported opening floats · '+esc(label)+(who?' · '+esc(who):' · all waitrons'));
-  const dates=Object.keys(day).filter(d=>Object.values(day[d]).some(s=>s.petty>0||s.floats>0)).sort();
-  if(!dates.length) return {html:h+'<p style="color:#6b7785;font-size:13px;">No starting-drawer petty cash or opening floats found for these dates.</p>',csv:null};
-  const D=dates.map(d=>{ const people=Object.values(day[d]); const petty=people.reduce((s,p)=>s+p.petty,0), floats=people.reduce((s,p)=>s+p.floats,0); return {d,people,petty,floats,diff:floats-petty,ok:Math.abs(floats-petty)<0.005}; });
+  let h=rptHead('Starting Drawer Check','Signed starting drawers in petty cash vs cash-up opening floats · '+esc(label));
+  const D=Object.values(day).map(x=>{ const petty=x.lines.reduce((s,l)=>s+l.amount,0), floats=x.cashups.reduce((s,c)=>s+c.fl,0);
+      return Object.assign(x,{petty,floats,diff:floats-petty,ok:Math.abs(floats-petty)<0.005,noSheet:x.lines.filter(l=>!l.sheet).length}); })
+    .filter(x=>x.petty>0||x.floats>0).sort((a,b)=>a.d.localeCompare(b.d));
+  if(!D.length) return {html:h+'<p style="color:#6b7785;font-size:13px;">No starting-drawer petty cash or opening floats found for these dates.</p>',csv:null};
   const tp=D.reduce((s,x)=>s+x.petty,0), tf=D.reduce((s,x)=>s+x.floats,0), bad=D.filter(x=>!x.ok);
   const dcell=d=>Math.abs(d)<0.005?'—':'<span class="'+(d>0?'rpt-over':'rpt-neg')+'">'+(d>0?'+ ':'– ')+M(Math.abs(d))+'</span>';
-  const verdict=x=>x.ok?'<span class="rpt-pos">✓ Matches</span>':'<span class="'+(x.diff>0?'rpt-over':'rpt-neg')+'">⚠ '+(x.diff>0?'OVER':'UNDER')+' — floats '+(x.diff>0?'over':'under')+' by '+M(Math.abs(x.diff))+'</span>';
-  h+='<div class="rpt-tot">Days checked: '+D.length+' &nbsp;&middot;&nbsp; Matching: <span class="rpt-pos">'+(D.length-bad.length)+'</span> &nbsp;&middot;&nbsp; Mismatched: <span class="'+(bad.length?'rpt-neg':'rpt-pos')+'">'+bad.length+'</span> &nbsp;&middot;&nbsp; "Starting drawer" in petty cash: '+M(tp)+' &nbsp;&middot;&nbsp; Opening floats reported: '+M(tf)+' &nbsp;&middot;&nbsp; Net difference: '+(Math.abs(tf-tp)<0.005?'<span class="rpt-pos">none</span>':dcell(tf-tp))+'</div>';
-  h+='<p style="font-size:11px;color:#6b7785;">Difference = opening floats reported in the cash-ups minus "Starting drawer" expenses in the petty cash records for the same date. <span class="rpt-neg">Red = UNDER</span> (waitrons reported less than was drawn from petty cash). <span class="rpt-over">Amber = OVER</span> (waitrons reported more than was drawn). A waitron with no "Starting drawer" line simply was not given petty cash that day — that is normal and is not counted as a problem.</p>';
-  const got=x=>{ const w=x.people.filter(p=>p.cashups>0||p.petty>0), g=w.filter(p=>p.petty>0), n=w.filter(p=>p.petty<=0).map(p=>p.name); return g.length+' of '+w.length+(n.length?' <span style="color:#6b7785;font-size:11px;">(none: '+esc(n.join(', '))+')</span>':''); };
-  h+='<h3>Day by day</h3>'+rptTable(['Date','Petty cash "Starting drawer"','Opening floats reported','Difference','Waitrons given petty cash','Result'],
-    D.map(x=>[esc(x.d),M(x.petty),M(x.floats),dcell(x.diff),got(x),verdict(x)]).concat([['TOTAL',M(tp),M(tf),dcell(tf-tp),'','']]));
+  const verdict=x=>x.ok?'<span class="rpt-pos">✓ Matches</span>':'<span class="'+(x.diff>0?'rpt-over':'rpt-neg')+'">⚠ '+(x.diff>0?'OVER':'UNDER')+' by '+M(Math.abs(x.diff))+'</span>';
+  const noSheetDays=D.filter(x=>x.noSheet>0).length;
+  h+='<div class="rpt-tot">Days checked: '+D.length+' &nbsp;&middot;&nbsp; Matching: <span class="rpt-pos">'+(D.length-bad.length)+'</span> &nbsp;&middot;&nbsp; Mismatched: <span class="'+(bad.length?'rpt-neg':'rpt-pos')+'">'+bad.length+'</span> &nbsp;&middot;&nbsp; Starting drawers in petty cash: '+M(tp)+' &nbsp;&middot;&nbsp; Opening floats on cash-ups: '+M(tf)+' &nbsp;&middot;&nbsp; Net difference: '+(Math.abs(tf-tp)<0.005?'<span class="rpt-pos">none</span>':dcell(tf-tp))+'</div>';
+  h+='<p style="font-size:11px;color:#6b7785;">How it works: the signed Confirmation of Starting Drawer total is entered in petty cash as a "Starting drawer" line. Each day, the opening floats on all the cash-ups should add up to that same total. <span class="rpt-neg">Red = UNDER</span> (cash-up floats add up to less than petty cash). <span class="rpt-over">Amber = OVER</span> (cash-up floats add up to more). This is a check on the day\'s totals, not on individual waitrons.</p>';
+  h+='<h3>Day by day</h3>'+rptTable(['Date','Starting drawers in petty cash','Cash-up opening floats','Difference','Signed sheet attached','Result'],
+    D.map(x=>[esc(x.d),M(x.petty),M(x.floats)+' <span style="color:#6b7785;font-size:11px;">('+x.cashups.length+' cash-up'+(x.cashups.length===1?'':'s')+')</span>',dcell(x.diff),x.lines.length?(x.noSheet?'<span class="rpt-over">'+(x.lines.length-x.noSheet)+' of '+x.lines.length+'</span>':'<span class="rpt-pos">✓</span>'):'—',verdict(x)])
+      .concat([['TOTAL',M(tp),M(tf),dcell(tf-tp),'','']]));
+  if(noSheetDays) h+='<p style="font-size:11px;color:#6b7785;">"Signed sheet attached" counts petty cash starting-drawer lines that have the signed confirmation sheet (or a receipt) attached. '+noSheetDays+' day'+(noSheetDays>1?'s have':' has')+' a line without one.</p>';
   if(bad.length){
-    const lines=[]; bad.forEach(x=>x.people.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(p=>{
-      const d=p.floats-p.petty; if(Math.abs(d)<0.005) return; const note=p.petty===0?'Opening float entered but no petty cash was drawn for this waitron':(p.cashups===0?'Petty cash drawn but no cash-up recorded':(p.floats===0?'Petty cash drawn but opening float is 0 on the cash-up':'Opening float differs from the petty cash amount'));
-      lines.push([esc(x.d),esc(p.name),M(p.petty),M(p.floats),dcell(d),esc(note)]); }));
-    h+='<h3>Who to check on the mismatched days <span style="font-weight:400;text-transform:none;">(only waitrons whose amounts differ)</span></h3>'+rptTable(['Date','Waitron','Petty cash','Opening float','Difference','Likely cause'],lines);
+    h+='<h3>Mismatched days — the two lists side by side</h3>';
+    bad.forEach(x=>{
+      h+='<p style="margin:10px 0 4px;"><b>'+esc(x.d)+'</b> — '+verdict(x)+'</p>';
+      const L=x.lines.map(l=>[esc(l.note||l.who||'Starting drawer'),M(l.amount),l.sheet?'✓':'—']).concat([['Total in petty cash',M(x.petty),'']]);
+      const C=x.cashups.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>[esc(c.name),c.fl>0?M(c.fl):'—']).concat([['Total opening floats',M(x.floats)]]);
+      h+='<div style="display:flex;gap:16px;flex-wrap:wrap;"><div style="flex:1;min-width:260px;">'+rptTable(['Petty cash — starting drawer lines','Amount','Sheet'],L)+'</div><div style="flex:1;min-width:260px;">'+rptTable(['Cash-ups — opening float','Amount'],C)+'</div></div>';
+    });
   }
-  const csv=[['Date','Waitron','Petty cash starting drawer','Opening float reported','Difference','Day result']];
-  D.forEach(x=>x.people.forEach(p=>csv.push([x.d,p.name,p.petty.toFixed(2),p.floats.toFixed(2),(p.floats-p.petty).toFixed(2),x.ok?'matches':'mismatch'])));
+  const csv=[['Date','Source','Name / note','Amount','Sheet attached']];
+  D.forEach(x=>{ x.lines.forEach(l=>csv.push([x.d,'petty cash',l.note||l.who,l.amount.toFixed(2),l.sheet?'yes':'no'])); x.cashups.forEach(c=>csv.push([x.d,'cash-up',c.name,c.fl.toFixed(2),''])); csv.push([x.d,'RESULT',x.ok?'matches':'mismatch',x.diff.toFixed(2),'']); });
   return {html:h,csv};
 }
 
