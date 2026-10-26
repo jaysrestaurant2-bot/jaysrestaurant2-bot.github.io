@@ -752,6 +752,7 @@
       <div id="rngLabel" style="font-weight:700;margin-bottom:8px;"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn primary small" onclick="runRangeReport('petty')">💵 Waitron petty cash</button>
+        <button class="btn primary small" onclick="runRangeReport('startdrawer')">🎯 Starting drawer check</button>
         <button class="btn primary small" onclick="runRangeReport('cash')">📋 Cash flow</button>
         <button class="btn primary small" onclick="runRangeReport('short')">💸 Shortages</button>
         <button class="btn primary small" onclick="openDrawerRange()">📈 Drawer record &amp; trends</button>
@@ -3220,6 +3221,7 @@ async function runRangeReport(kind){
   let rows=[]; try{ rows=await Store.list(); }catch(e){}
   const who=_rngWaitron(); let html='', csv=null;
   if(kind==='petty'){ const res=reportPettyCash(r.from,r.to,r.label,rows,who); html=res.html; csv=res.csv; }
+  else if(kind==='startdrawer'){ const res=reportStartingDrawer(r.from,r.to,r.label,rows,who); html=res.html; csv=res.csv; }
   else if(kind==='cash'){ html=reportCashRange(r.from,r.to,rows,'Cash Report — '+r.label,'RANGE TOTAL'); }
   else if(kind==='short'){
     shRange={from:r.from,to:r.to,label:r.label};
@@ -3241,7 +3243,7 @@ function exportRangeCSV(){
   const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
   const txt=rngCurrent.csv.map(row=>row.map(q).join(',')).join('\r\n');
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(['﻿'+txt],{type:'text/csv'}));
-  a.download='petty-cash_'+rngCurrent.r.from+'_to_'+rngCurrent.r.to+'.csv'; document.body.appendChild(a); a.click(); a.remove();
+  a.download=(rngCurrent.kind==='startdrawer'?'starting-drawer-check_':'petty-cash_')+rngCurrent.r.from+'_to_'+rngCurrent.r.to+'.csv'; document.body.appendChild(a); a.click(); a.remove();
 }
 async function openDrawerRange(){
   const r=getRange(); if(!r) return;
@@ -3260,6 +3262,39 @@ async function openDrawerRange(){
   document.getElementById('drFrom').value=r.from; document.getElementById('drTo').value=r.to;
   if(!document.getElementById('drDate').value) document.getElementById('drDate').value=r.to;
   setDrawerPeriod('custom');
+}
+
+/* ---------- Starting drawer check (petty cash "Starting drawer" lines vs reported opening floats) ---------- */
+function reportStartingDrawer(from,to,label,rows,who){
+  const key=(who||'').trim().toLowerCase(); const nk=r=>((r.runner||'').trim().toLowerCase());
+  const isSD=p=>(p.category||'').trim().toLowerCase()==='starting drawer'||(p.note||'').trim().toLowerCase().includes('starting drawer');
+  const day={}; // date -> { person -> {name, petty, floats} }
+  const slot=(d,r)=>{ const D=day[d]=day[d]||{}; const k=nk(r)||'?'; return D[k]=D[k]||{name:(r.runner||'?').trim()||'?',petty:0,floats:0,pettyRecs:0,cashups:0}; };
+  rows.filter(r=>r.type==='waitron' && _inR((r.date||'').slice(0,10),from,to) && (!key||nk(r)===key) && ['authorised','submitted','approved'].includes(r.status)).forEach(r=>{
+    const sd=(r.purchases||[]).filter(isSD).reduce((s,p)=>s+(p.amount||0),0); if(sd>0){ const s=slot((r.date||'').slice(0,10),r); s.petty+=sd; s.pettyRecs++; }
+  });
+  rows.filter(r=>r.type==='sales' && _inR((r.date||'').slice(0,10),from,to) && (!key||nk(r)===key)).forEach(r=>{
+    const s=slot((r.date||'').slice(0,10),r); s.floats+=(r.cash_float||0); s.cashups++;
+  });
+  let h=rptHead('Starting Drawer Check','Petty cash vs reported opening floats · '+esc(label)+(who?' · '+esc(who):' · all waitrons'));
+  const dates=Object.keys(day).filter(d=>Object.values(day[d]).some(s=>s.petty>0||s.floats>0)).sort();
+  if(!dates.length) return {html:h+'<p style="color:#6b7785;font-size:13px;">No starting-drawer petty cash or opening floats found for these dates.</p>',csv:null};
+  const D=dates.map(d=>{ const people=Object.values(day[d]); const petty=people.reduce((s,p)=>s+p.petty,0), floats=people.reduce((s,p)=>s+p.floats,0); return {d,people,petty,floats,diff:floats-petty,ok:Math.abs(floats-petty)<0.005}; });
+  const tp=D.reduce((s,x)=>s+x.petty,0), tf=D.reduce((s,x)=>s+x.floats,0), bad=D.filter(x=>!x.ok);
+  const verdict=x=>x.ok?'<span class="rpt-pos">✓ Matches</span>':'<span class="rpt-neg">⚠ Mismatch — floats '+(x.diff>0?'over':'under')+' by '+M(Math.abs(x.diff))+'</span>';
+  h+='<div class="rpt-tot">Days checked: '+D.length+' &nbsp;&middot;&nbsp; Matching: <span class="rpt-pos">'+(D.length-bad.length)+'</span> &nbsp;&middot;&nbsp; Mismatched: <span class="'+(bad.length?'rpt-neg':'rpt-pos')+'">'+bad.length+'</span> &nbsp;&middot;&nbsp; "Starting drawer" in petty cash: '+M(tp)+' &nbsp;&middot;&nbsp; Opening floats reported: '+M(tf)+' &nbsp;&middot;&nbsp; Net difference: <span class="'+(Math.abs(tf-tp)<0.005?'rpt-pos':'rpt-neg')+'">'+(tf-tp>=0?'+ ':'– ')+M(Math.abs(tf-tp))+'</span></div>';
+  h+='<p style="font-size:11px;color:#6b7785;">Difference = opening floats reported in the cash-ups minus "Starting drawer" expenses in the petty cash records for the same date. Under = the waitrons reported less than was drawn from petty cash.</p>';
+  h+='<h3>Day by day</h3>'+rptTable(['Date','Petty cash "Starting drawer"','Opening floats reported','Difference','Result'],
+    D.map(x=>[esc(x.d),M(x.petty),M(x.floats),(x.diff>=0?'+ ':'– ')+M(Math.abs(x.diff)),verdict(x)]).concat([['TOTAL',M(tp),M(tf),(tf-tp>=0?'+ ':'– ')+M(Math.abs(tf-tp)),'']]));
+  if(bad.length){
+    const lines=[]; bad.forEach(x=>x.people.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(p=>{
+      const d=p.floats-p.petty; const note=p.petty===0?'No "Starting drawer" line in petty cash':(p.cashups===0?'No cash-up recorded':(Math.abs(d)<0.005?'Matches':'Amounts differ'));
+      lines.push([esc(x.d),esc(p.name),M(p.petty),M(p.floats),Math.abs(d)<0.005?'—':(d>=0?'+ ':'– ')+M(Math.abs(d)),esc(note)]); }));
+    h+='<h3>Who to check on the mismatched days</h3>'+rptTable(['Date','Waitron','Petty cash','Opening float','Difference','Likely cause'],lines);
+  }
+  const csv=[['Date','Waitron','Petty cash starting drawer','Opening float reported','Difference','Day result']];
+  D.forEach(x=>x.people.forEach(p=>csv.push([x.d,p.name,p.petty.toFixed(2),p.floats.toFixed(2),(p.floats-p.petty).toFixed(2),x.ok?'matches':'mismatch'])));
+  return {html:h,csv};
 }
 
 /* ---------- Waitron petty cash report (any date range, optional waitron) ---------- */
