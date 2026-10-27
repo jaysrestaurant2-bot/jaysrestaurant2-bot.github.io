@@ -108,6 +108,7 @@
   .rpt-neg{color:#c1121f;font-weight:700;} .rpt-over{color:#b45309;font-weight:700;} .rpt-pos{color:#1b6e4f;font-weight:700;}
   .rpt-sign{margin-top:30px;display:flex;justify-content:space-between;gap:30px;font-size:12px;}
   .rpt-sign div{border-top:1px solid #999;padding-top:5px;flex:1;}
+  .rpt-page{page-break-after:always;} .rpt-page:last-child{page-break-after:auto;}
   @media print{ @page{margin:14mm;} body{background:#fff;} .no-print{display:none !important;} }
   /* Toast */
   #toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(100px);background:#1b6e4f;color:#fff;padding:11px 24px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.18);transition:transform .28s ease;z-index:9999;pointer-events:none;}
@@ -761,6 +762,7 @@
       <div id="rngPreviewBar" class="no-print" style="display:none;margin-top:14px;">
         <button class="btn ghost small" onclick="printRangePreview()">🖨 Print / PDF</button>
         <button class="btn ghost small" onclick="exportRangeCSV()" id="rngCsvBtn" style="display:none;">⬇ CSV</button>
+        <button class="btn primary small" onclick="printRangeStatements()" id="rngStmtBtn" style="display:none;">🖨 Statement for each person</button>
       </div>
       <div id="rptPreview" style="margin-top:10px;overflow-x:auto;"></div>
     </div>
@@ -3228,19 +3230,25 @@ function _rngWaitron(){ const v=document.getElementById('rngWaitron').value; ret
 async function runRangeReport(kind){
   const r=getRange(); if(!r) return;
   let rows=[]; try{ rows=await Store.list(); }catch(e){}
-  const who=_rngWaitron(); let html='', csv=null;
+  const who=_rngWaitron(); let html='', csv=null, stmts='';
   if(kind==='petty'){ const res=reportPettyCash(r.from,r.to,r.label,rows,who); html=res.html; csv=res.csv; }
-  else if(kind==='startdrawer'){ const res=reportStartingDrawer(r.from,r.to,r.label,rows); html=res.html; csv=res.csv; }
+  else if(kind==='startdrawer'){ const res=reportStartingDrawer(r.from,r.to,r.label,rows); html=res.html; csv=res.csv; stmts=res.statements||''; }
   else if(kind==='cash'){ html=reportCashRange(r.from,r.to,rows,'Cash Report — '+r.label,'RANGE TOTAL'); }
   else if(kind==='short'){
     shRange={from:r.from,to:r.to,label:r.label};
     try{ await loadShortages(); html=reportShortages(); } finally { shRange=null; }
   }
-  rngCurrent={html,csv,kind,r};
+  rngCurrent={html,csv,kind,r,stmts};
   document.getElementById('rptPreview').innerHTML=html;
   document.getElementById('rngPreviewBar').style.display='block';
   document.getElementById('rngCsvBtn').style.display=csv?'':'none';
+  document.getElementById('rngStmtBtn').style.display=stmts?'':'none';
   document.getElementById('rptPreview').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function printRangeStatements(){
+  if(!rngCurrent||!rngCurrent.stmts) return;
+  document.getElementById('printArea').innerHTML=rngCurrent.stmts;
+  document.body.classList.add('printing'); window.print(); setTimeout(()=>document.body.classList.remove('printing'),800);
 }
 function printRangePreview(){
   if(!rngCurrent) return;
@@ -3273,46 +3281,82 @@ async function openDrawerRange(){
   setDrawerPeriod('custom');
 }
 
-/* ---------- Starting drawer check: signed starting-drawer total in petty cash vs the day's cash-up opening floats ---------- */
+/* ---------- Starting drawer check: signed starting-drawer total in petty cash vs the day's cash-up opening floats, with who is responsible ---------- */
 function reportStartingDrawer(from,to,label,rows){
   const since=((document.getElementById('rngSheetSince')||{}).value)||'';
   const isSD=p=>(p.category||'').trim().toLowerCase()==='starting drawer'||(p.note||'').trim().toLowerCase().includes('starting drawer');
   const live=['authorised','submitted','approved'];
   const day={}; const slot=d=>day[d]=day[d]||{d,lines:[],cashups:[]};
   rows.filter(r=>r.type==='waitron' && _inR((r.date||'').slice(0,10),from,to) && live.includes(r.status)).forEach(r=>{
-    (r.purchases||[]).filter(isSD).forEach(p=>{ if((p.amount||0)>0) slot((r.date||'').slice(0,10)).lines.push({who:(r.runner||'').trim(),note:(p.note||'').trim(),amount:p.amount||0,sheet:!!p.receiptFile}); });
+    (r.purchases||[]).filter(isSD).forEach(p=>{ if((p.amount||0)>0) slot((r.date||'').slice(0,10)).lines.push({who:(r.runner||'').trim()||'(not named)',by:(r.authoriser||'').trim(),note:(p.note||'').trim(),amount:p.amount||0,sheet:!!p.receiptFile}); });
   });
   rows.filter(r=>r.type==='sales' && _inR((r.date||'').slice(0,10),from,to)).forEach(r=>{
     slot((r.date||'').slice(0,10)).cashups.push({name:(r.runner||'?').trim()||'?',fl:r.cash_float||0});
   });
   let h=rptHead('Starting Drawer Check','Signed starting drawers in petty cash vs cash-up opening floats · '+esc(label));
   const D=Object.values(day).map(x=>{ const petty=x.lines.reduce((s,l)=>s+l.amount,0), floats=x.cashups.reduce((s,c)=>s+c.fl,0);
-      return Object.assign(x,{petty,floats,diff:floats-petty,ok:Math.abs(floats-petty)<0.005,noSheet:x.lines.filter(l=>!l.sheet).length}); })
+      const hm={}; x.lines.forEach(l=>{ hm[l.who]=(hm[l.who]||0)+l.amount; });
+      const holders=Object.keys(hm).sort().map(n=>({name:n,amount:hm[n]}));
+      return Object.assign(x,{petty,floats,diff:floats-petty,ok:Math.abs(floats-petty)<0.005,noSheet:x.lines.filter(l=>!l.sheet).length,holders,
+        resp:holders.length===1?holders[0].name:''}); })
     .filter(x=>x.petty>0||x.floats>0).sort((a,b)=>a.d.localeCompare(b.d));
   D.forEach(x=>{ x.needSheet=!!since && x.d>=since; if(!x.needSheet) x.noSheet=0; });
-  if(!D.length) return {html:h+'<p style="color:#6b7785;font-size:13px;">No starting-drawer petty cash or opening floats found for these dates.</p>',csv:null};
+  if(!D.length) return {html:h+'<p style="color:#6b7785;font-size:13px;">No starting-drawer petty cash or opening floats found for these dates.</p>',csv:null,statements:''};
   const tp=D.reduce((s,x)=>s+x.petty,0), tf=D.reduce((s,x)=>s+x.floats,0), bad=D.filter(x=>!x.ok);
   const dcell=d=>Math.abs(d)<0.005?'—':'<span class="'+(d>0?'rpt-over':'rpt-neg')+'">'+(d>0?'+ ':'– ')+M(Math.abs(d))+'</span>';
   const verdict=x=>x.ok?'<span class="rpt-pos">✓ Matches</span>':'<span class="'+(x.diff>0?'rpt-over':'rpt-neg')+'">⚠ '+(x.diff>0?'OVER':'UNDER')+' by '+M(Math.abs(x.diff))+'</span>';
+  const respCell=x=>x.holders.length===0?'<span style="color:#6b7785;">nobody — no starting drawer in petty cash</span>'
+    :(x.holders.length===1?'<b>'+esc(x.holders[0].name)+'</b>':'<span class="rpt-over">Shared:</span> '+x.holders.map(o=>esc(o.name)+' '+M(o.amount)).join(' + '));
   const noSheetDays=D.filter(x=>x.noSheet>0).length;
   h+='<div class="rpt-tot">Days checked: '+D.length+' &nbsp;&middot;&nbsp; Matching: <span class="rpt-pos">'+(D.length-bad.length)+'</span> &nbsp;&middot;&nbsp; Mismatched: <span class="'+(bad.length?'rpt-neg':'rpt-pos')+'">'+bad.length+'</span> &nbsp;&middot;&nbsp; Starting drawers in petty cash: '+M(tp)+' &nbsp;&middot;&nbsp; Opening floats on cash-ups: '+M(tf)+' &nbsp;&middot;&nbsp; Net difference: '+(Math.abs(tf-tp)<0.005?'<span class="rpt-pos">none</span>':dcell(tf-tp))+'</div>';
-  h+='<p style="font-size:11px;color:#6b7785;">How it works: the signed Confirmation of Starting Drawer total is entered in petty cash as a "Starting drawer" line. Each day, the opening floats on all the cash-ups should add up to that same total. <span class="rpt-neg">Red = UNDER</span> (cash-up floats add up to less than petty cash). <span class="rpt-over">Amber = OVER</span> (cash-up floats add up to more). This is a check on the day\'s totals, not on individual waitrons.</p>';
-  h+='<h3>Day by day</h3>'+rptTable(['Date','Starting drawers in petty cash','Cash-up opening floats','Difference','Signed sheet / attachment','Result'],
-    D.map(x=>[esc(x.d),M(x.petty),M(x.floats)+' <span style="color:#6b7785;font-size:11px;">('+x.cashups.length+' cash-up'+(x.cashups.length===1?'':'s')+')</span>',dcell(x.diff),x.lines.length?(x.noSheet?'<span class="rpt-over">'+(x.lines.length-x.noSheet)+' of '+x.lines.length+'</span>':(x.lines.every(l=>l.sheet)?'<span class="rpt-pos">✓</span>':(x.needSheet?'':'<span style="color:#6b7785;">n/a (hard copy)</span>'))):'—',verdict(x)])
-      .concat([['TOTAL',M(tp),M(tf),dcell(tf-tp),'','']]));
+  h+='<p style="font-size:11px;color:#6b7785;">How it works: the signed Confirmation of Starting Drawer total is entered in petty cash as a "Starting drawer" line, authorised to one person. Each day, the opening floats on all the cash-ups should add up to that same total. <span class="rpt-neg">Red = UNDER</span> (cash-up floats add up to less than petty cash — the person it was authorised to is responsible). <span class="rpt-over">Amber = OVER</span> (cash-up floats add up to more).</p>';
+  h+='<h3>Day by day</h3>'+rptTable(['Date','Authorised to (responsible)','Starting drawers in petty cash','Cash-up opening floats','Difference','Signed sheet / attachment','Result'],
+    D.map(x=>[esc(x.d),respCell(x),M(x.petty),M(x.floats)+' <span style="color:#6b7785;font-size:11px;">('+x.cashups.length+' cash-up'+(x.cashups.length===1?'':'s')+')</span>',dcell(x.diff),
+      x.lines.length?(x.noSheet?'<span class="rpt-over">'+(x.lines.length-x.noSheet)+' of '+x.lines.length+'</span>':(x.lines.every(l=>l.sheet)?'<span class="rpt-pos">✓</span>':(x.needSheet?'':'<span style="color:#6b7785;">n/a (hard copy)</span>'))):'—',verdict(x)])
+      .concat([['TOTAL','',M(tp),M(tf),dcell(tf-tp),'','']]));
   if(noSheetDays) h+='<p style="font-size:11px;color:#6b7785;">Since '+esc(since)+' the signed confirmation sheet should be attached to each petty cash starting-drawer line. '+noSheetDays+' day'+(noSheetDays>1?'s have':' has')+' a line without one.</p>';
+  // ---- summary per responsible person ----
+  const P={}; const pn=n=>P[n]=P[n]||{name:n,days:[],under:0,over:0,underDays:0,overDays:0};
+  const shared=[], nobody=[];
+  D.forEach(x=>{
+    if(x.holders.length===1){ const p=pn(x.resp); p.days.push(x); if(x.diff<-0.005){ p.under+=-x.diff; p.underDays++; } else if(x.diff>0.005){ p.over+=x.diff; p.overDays++; } }
+    else if(x.holders.length>1){ if(!x.ok) shared.push(x); }
+    else if(!x.ok) nobody.push(x);
+  });
+  const people=Object.values(P).sort((a,b)=>b.under-a.under||a.name.localeCompare(b.name));
+  h+='<h3>Summary — who is responsible for the shortages</h3>';
+  if(people.length){
+    h+=rptTable(['Authorised to','Days held','Days under','Total UNDER (to deduct)','Days over','Total over'],
+      people.map(p=>[esc(p.name),p.days.length,p.underDays||'—',p.under>0?'<span class="rpt-neg">'+M(p.under)+'</span>':'—',p.overDays||'—',p.over>0?'<span class="rpt-over">'+M(p.over)+'</span>':'—'])
+      .concat([['TOTAL',people.reduce((s,p)=>s+p.days.length,0),people.reduce((s,p)=>s+p.underDays,0),M(people.reduce((s,p)=>s+p.under,0)),people.reduce((s,p)=>s+p.overDays,0),M(people.reduce((s,p)=>s+p.over,0))]]));
+    h+='<p style="font-size:11px;color:#6b7785;">Only UNDER amounts are listed as deductible. Overs are shown separately and are not netted off.</p>';
+  } else h+='<p style="font-size:12px;color:#6b7785;">No single person can be named for these days.</p>';
+  if(shared.length) h+='<p style="font-size:12px;margin-top:8px;"><span class="rpt-over">Needs a decision:</span> petty cash was authorised to more than one person on '+shared.map(x=>esc(x.d)+' ('+(x.diff<0?'under ':'over ')+M(Math.abs(x.diff))+': '+x.holders.map(o=>esc(o.name)+' '+M(o.amount)).join(' + ')+')').join('; ')+'. The difference is not assigned to anyone automatically.</p>';
+  if(nobody.length) h+='<p style="font-size:12px;margin-top:4px;"><span class="rpt-over">No starting drawer in petty cash</span> but cash-ups show floats on: '+nobody.map(x=>esc(x.d)+' ('+M(x.floats)+')').join('; ')+'.</p>';
   if(bad.length){
     h+='<h3>Mismatched days — the two lists side by side</h3>';
     bad.forEach(x=>{
-      h+='<p style="margin:10px 0 4px;"><b>'+esc(x.d)+'</b> — '+verdict(x)+'</p>';
-      const L=x.lines.map(l=>[esc(l.note||l.who||'Starting drawer'),M(l.amount),l.sheet?'✓':'—']).concat([['Total in petty cash',M(x.petty),'']]);
+      h+='<p style="margin:10px 0 4px;"><b>'+esc(x.d)+'</b> — '+verdict(x)+' — authorised to: '+respCell(x)+'</p>';
+      const L=x.lines.map(l=>[esc(l.note||'Starting drawer')+' <span style="color:#6b7785;font-size:11px;">('+esc(l.who)+(l.by?', authorised by '+esc(l.by):'')+')</span>',M(l.amount),l.sheet?'✓':'—']).concat([['Total in petty cash',M(x.petty),'']]);
       const C=x.cashups.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>[esc(c.name),c.fl>0?M(c.fl):'—']).concat([['Total opening floats',M(x.floats)]]);
       h+='<div style="display:flex;gap:16px;flex-wrap:wrap;"><div style="flex:1;min-width:260px;">'+rptTable(['Petty cash — starting drawer lines','Amount','Sheet'],L)+'</div><div style="flex:1;min-width:260px;">'+rptTable(['Cash-ups — opening float','Amount'],C)+'</div></div>';
     });
   }
-  const csv=[['Date','Source','Name / note','Amount','Sheet attached']];
-  D.forEach(x=>{ x.lines.forEach(l=>csv.push([x.d,'petty cash',l.note||l.who,l.amount.toFixed(2),l.sheet?'yes':'no'])); x.cashups.forEach(c=>csv.push([x.d,'cash-up',c.name,c.fl.toFixed(2),''])); csv.push([x.d,'RESULT',x.ok?'matches':'mismatch',x.diff.toFixed(2),'']); });
-  return {html:h,csv};
+  // ---- one statement page per person ----
+  let statements='';
+  people.filter(p=>p.under>0.005||p.over>0.005).forEach(p=>{
+    let s='<div class="rpt-page">'+rptHead('Starting Drawer Statement','Jays Restaurant · '+esc(label));
+    s+='<div class="rpt-meta">'+kv('Authorised to',p.name)+kv('Period',label)+'</div>';
+    s+='<p style="font-size:12px;">The starting drawers below were authorised to you from petty cash. Where the opening floats recorded on that day\'s cash-ups add up to less than the amount authorised, the difference is your responsibility.</p>';
+    s+=rptTable(['Date','Authorised to you (M)','Cash-up opening floats (M)','Difference','Result'],
+      p.days.map(x=>[esc(x.d),M(x.petty),M(x.floats),dcell(x.diff),verdict(x)]).concat([['TOTAL',M(p.days.reduce((a,x)=>a+x.petty,0)),M(p.days.reduce((a,x)=>a+x.floats,0)),'','']]));
+    s+='<div class="rpt-tot">Total UNDER (to be deducted): <span class="rpt-neg">'+M(p.under)+'</span>'+(p.over>0.005?' &nbsp;&middot;&nbsp; Total over (not netted off): <span class="rpt-over">'+M(p.over)+'</span>':'')+'</div>';
+    s+='<div class="rpt-sign"><div>Acknowledged by: '+esc(p.name)+'</div><div>Manager: ______________________ &nbsp; Date: ____________</div></div></div>';
+    statements+=s;
+  });
+  const csv=[['Date','Source','Name / note','Amount','Sheet attached','Authorised to']];
+  D.forEach(x=>{ x.lines.forEach(l=>csv.push([x.d,'petty cash',l.note||'Starting drawer',l.amount.toFixed(2),l.sheet?'yes':'no',l.who])); x.cashups.forEach(c=>csv.push([x.d,'cash-up',c.name,c.fl.toFixed(2),'',''])); csv.push([x.d,'RESULT',x.ok?'matches':'mismatch',x.diff.toFixed(2),'',x.holders.map(o=>o.name).join(' + ')]); });
+  return {html:h,csv,statements};
 }
 
 /* ---------- Waitron petty cash report (any date range, optional waitron) ---------- */
